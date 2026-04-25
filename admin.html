@@ -211,7 +211,7 @@
     .modal-overlay {
       display: none;
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.4);
+      background: rgba(0,0,0,0.45);
       z-index: 100;
       align-items: center;
       justify-content: center;
@@ -222,42 +222,88 @@
       background: #fff;
       border-radius: 16px;
       width: 100%;
-      max-width: 560px;
-      max-height: 80vh;
+      max-width: 620px;
+      max-height: 88vh;
       overflow-y: auto;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+      display: flex;
+      flex-direction: column;
     }
     .modal-header {
-      padding: 20px 24px 16px;
+      padding: 18px 24px;
       border-bottom: 1px solid #e5e7eb;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
+      gap: 12px;
       position: sticky; top: 0;
       background: #fff;
+      z-index: 1;
     }
-    .modal-header h2 { font-size: 16px; }
+    .modal-header-left { display: flex; flex-direction: column; gap: 6px; }
+    .modal-header-left h2 { font-size: 15px; display: flex; align-items: center; gap: 8px; }
+    .modal-id {
+      font-size: 11px; color: #9ca3af;
+      font-family: monospace;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .copy-btn {
+      background: #f3f4f6; border: none; border-radius: 4px;
+      padding: 2px 8px; font-size: 10px; cursor: pointer; color: #6b7280;
+    }
+    .copy-btn:hover { background: #e5e7eb; }
     .modal-close {
       background: none; border: none;
-      font-size: 20px; cursor: pointer; color: #9ca3af;
-      line-height: 1;
+      font-size: 22px; cursor: pointer; color: #9ca3af;
+      line-height: 1; flex-shrink: 0; margin-top: 2px;
     }
     .modal-close:hover { color: #111; }
-    .modal-body { padding: 20px 24px; }
-    .field-group { margin-bottom: 16px; }
-    .field-label {
-      font-size: 11px; text-transform: uppercase;
-      letter-spacing: 0.5px; color: #9ca3af;
-      margin-bottom: 4px;
+    .modal-body { padding: 0 24px 24px; }
+
+    .profile-section { padding-top: 20px; }
+    .profile-section + .profile-section { border-top: 1px solid #f3f4f6; padding-top: 16px; margin-top: 4px; }
+    .section-title {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+      color: #9ca3af; font-weight: 600; margin-bottom: 12px;
     }
-    .field-value { font-size: 14px; color: #111827; word-break: break-word; }
+
+    .field-row {
+      display: flex; align-items: baseline;
+      gap: 12px; margin-bottom: 10px;
+    }
+    .field-label {
+      font-size: 12px; color: #6b7280;
+      min-width: 140px; flex-shrink: 0;
+    }
+    .field-value { font-size: 13px; color: #111827; word-break: break-word; flex: 1; }
     .field-value a { color: #2d6a4f; text-decoration: none; }
     .field-value a:hover { text-decoration: underline; }
-    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .field-value.muted { color: #9ca3af; }
+
+    .tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
     .tag {
       background: #f3f4f6; border-radius: 8px;
       padding: 3px 10px; font-size: 12px; color: #374151;
+    }
+    .bool-yes { color: #059669; font-weight: 500; }
+    .bool-no  { color: #9ca3af; }
+
+    .raw-toggle {
+      margin-top: 16px; padding-top: 16px;
+      border-top: 1px solid #f3f4f6;
+    }
+    .raw-toggle summary {
+      font-size: 11px; color: #9ca3af; cursor: pointer;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      list-style: none;
+    }
+    .raw-toggle summary:hover { color: #6b7280; }
+    .raw-json {
+      margin-top: 10px;
+      background: #f9fafb; border-radius: 8px;
+      padding: 12px; font-family: monospace;
+      font-size: 11px; color: #374151;
+      overflow-x: auto; white-space: pre;
     }
 
     .loading {
@@ -320,7 +366,10 @@
 <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
   <div class="modal" id="modal">
     <div class="modal-header">
-      <h2 id="modalTitle">Member Profile</h2>
+      <div class="modal-header-left">
+        <h2 id="modalTitle">Member Profile</h2>
+        <div class="modal-id" id="modalId"></div>
+      </div>
       <button class="modal-close" onclick="closeModalDirect()">×</button>
     </div>
     <div class="modal-body" id="modalBody"></div>
@@ -494,74 +543,130 @@
     const p = m.profile || {};
     const type = p.memberType || "unknown";
 
-    document.getElementById("modalTitle").innerHTML = `<span class="badge badge-${type}" style="margin-right:8px">${type}</span> ${m.id}`;
+    document.getElementById("modalTitle").innerHTML =
+      `<span class="badge badge-${type}">${type}</span> <span style="color:#6b7280;font-weight:400">${m.source === "sms" ? "SMS member" : "Web member"}</span>`;
+    document.getElementById("modalId").innerHTML =
+      `${m.id} <button class="copy-btn" onclick="copyId('${escapeId(m.id)}')">copy</button>`;
     document.getElementById("modalBody").innerHTML = buildProfileHtml(type, p, m);
     document.getElementById("modalOverlay").classList.add("open");
   }
 
-  function buildProfileHtml(type, p, m) {
-    const fields = [];
+  function copyId(id) {
+    navigator.clipboard.writeText(id).catch(() => {});
+  }
 
-    const add = (label, value) => {
-      if (!value && value !== false) return;
-      let display;
+  // All known profile keys — used to detect extras
+  const KNOWN_PROFILE_KEYS = new Set([
+    "memberType","businessLink","businessDescription","approvedBlurb","shareTypes",
+    "openToBusinessCollabs","eventPlatforms","interests","neighborhood","personalNote",
+    "stayConnectedPreference","discipline","venueTypes","portfolioLink","city",
+    "travelRadius","openToArtistCollabs","cause","impactGoals","connectWith",
+    "orgLink","openToOtherCommunities","niche","platforms","audienceSize",
+    "partnershipTypes","profileLink","onboardingComplete",
+  ]);
+
+  function buildProfileHtml(type, p, m) {
+    const shown = new Set();
+    let html = "";
+
+    // ── row renderer ──
+    const row = (label, value) => {
+      if (value === undefined || value === null || value === "") return "";
+      shown.add(label);
+      let val;
       if (Array.isArray(value)) {
-        display = `<div class="tag-list">${value.map(v => `<span class="tag">${v}</span>`).join("")}</div>`;
+        val = value.length
+          ? `<div class="tag-list">${value.map(v => `<span class="tag">${v}</span>`).join("")}</div>`
+          : `<span class="field-value muted">—</span>`;
       } else if (typeof value === "boolean") {
-        display = `<div class="field-value">${value ? "Yes" : "No"}</div>`;
-      } else if (typeof value === "string" && (value.startsWith("http") || value.includes("."))) {
-        display = `<div class="field-value"><a href="${value.startsWith("http") ? value : "https://" + value}" target="_blank">${value}</a></div>`;
+        val = `<span class="${value ? "bool-yes" : "bool-no"}">${value ? "Yes" : "No"}</span>`;
+      } else if (typeof value === "string" && /^https?:\/\/|^[\w-]+\.\w{2,}/.test(value)) {
+        const href = value.startsWith("http") ? value : "https://" + value;
+        val = `<a href="${href}" target="_blank" rel="noopener">${value}</a>`;
       } else {
-        display = `<div class="field-value">${value}</div>`;
+        val = `${value}`;
       }
-      fields.push(`<div class="field-group"><div class="field-label">${label}</div>${display}</div>`);
+      return `<div class="field-row"><div class="field-label">${label}</div><div class="field-value">${val}</div></div>`;
     };
 
-    // Common
-    add("Member Type", p.memberType);
-    add("Source", m.source);
+    const section = (title, rows) => {
+      const content = rows.filter(Boolean).join("");
+      if (!content) return "";
+      return `<div class="profile-section"><div class="section-title">${title}</div>${content}</div>`;
+    };
 
+    // ── Account ──
+    html += section("Account", [
+      row("Member ID", m.id),
+      row("Source", m.source),
+      row("Member Type", p.memberType),
+      row("Onboarding Complete", p.onboardingComplete),
+      m.lastActiveAt ? row("Last Active", new Date(m.lastActiveAt._seconds * 1000).toLocaleString()) : "",
+    ]);
+
+    // ── Type-specific profile ──
     if (type === "vendor") {
-      add("Business Link", p.businessLink);
-      add("Approved Blurb", p.approvedBlurb);
-      add("Description", p.businessDescription);
-      add("Sharing", p.shareTypes);
-      add("Event Platforms", p.eventPlatforms);
-      add("Open to Business Collabs", p.openToBusinessCollabs);
+      html += section("Business", [
+        row("Business Link", p.businessLink),
+        row("Approved Blurb", p.approvedBlurb),
+        row("Description", p.businessDescription),
+        row("What They Share", p.shareTypes),
+        row("Event Platforms", p.eventPlatforms),
+        row("Open to Business Collabs", p.openToBusinessCollabs),
+      ]);
     } else if (type === "shopper") {
-      add("Neighborhood", p.neighborhood);
-      add("Interests", p.interests);
-      add("Stay Connected Preference", p.stayConnectedPreference);
-      add("Personal Note", p.personalNote);
+      html += section("Shopper Profile", [
+        row("Neighborhood", p.neighborhood),
+        row("Interests", p.interests),
+        row("Stay Connected Preference", p.stayConnectedPreference),
+        row("Personal Note (anonymous intro)", p.personalNote),
+      ]);
     } else if (type === "artist") {
-      add("Discipline", p.discipline);
-      add("City", p.city);
-      add("Travel Radius", p.travelRadius);
-      add("Venue Types", p.venueTypes);
-      add("Portfolio Link", p.portfolioLink);
-      add("Event Platforms", p.eventPlatforms);
-      add("Open to Artist Collabs", p.openToArtistCollabs);
+      html += section("Artist Profile", [
+        row("Discipline", p.discipline),
+        row("City", p.city),
+        row("Travel Radius", p.travelRadius),
+        row("Venue Types", p.venueTypes),
+        row("Portfolio Link", p.portfolioLink),
+        row("Event Platforms", p.eventPlatforms),
+        row("Open to Artist Collabs", p.openToArtistCollabs),
+      ]);
     } else if (type === "organizer") {
-      add("Cause / Community", p.cause);
-      add("Impact Goals", p.impactGoals);
-      add("Connect With", p.connectWith);
-      add("Org Link", p.orgLink);
-      add("Open to Other Communities", p.openToOtherCommunities);
+      html += section("Organizer Profile", [
+        row("Cause / Community", p.cause),
+        row("Impact Goals", p.impactGoals),
+        row("Wants to Connect With", p.connectWith),
+        row("Organization Link", p.orgLink),
+        row("Open to Other Communities", p.openToOtherCommunities),
+      ]);
     } else if (type === "influencer") {
-      add("Niche", p.niche);
-      add("Platforms", p.platforms);
-      add("Audience Size", p.audienceSize);
-      add("Partnership Types", p.partnershipTypes);
-      add("Profile Link", p.profileLink);
+      html += section("Influencer Profile", [
+        row("Niche", p.niche),
+        row("Platforms", p.platforms),
+        row("Audience Size", p.audienceSize),
+        row("Partnership Types", p.partnershipTypes),
+        row("Profile Link", p.profileLink),
+      ]);
     }
 
-    add("Onboarding Complete", p.onboardingComplete);
-
-    if (m.lastActiveAt) {
-      fields.push(`<div class="field-group"><div class="field-label">Last Active</div><div class="field-value">${new Date(m.lastActiveAt._seconds * 1000).toLocaleString()}</div></div>`);
+    // ── Catch-all: any profile keys not yet shown ──
+    const extras = Object.entries(p).filter(([k]) => !KNOWN_PROFILE_KEYS.has(k));
+    if (extras.length) {
+      html += section("Additional Fields", extras.map(([k, v]) => row(k, v)));
     }
 
-    return fields.length ? `<div class="field-grid">${fields.join("")}</div>` : `<p style="color:#9ca3af">No profile data collected yet.</p>`;
+    if (!html) {
+      html = `<div class="profile-section"><p style="color:#9ca3af;font-size:13px">No profile data collected yet — conversation may still be in progress.</p></div>`;
+    }
+
+    // ── Raw JSON (collapsible) ──
+    const rawData = { id: m.id, source: m.source, lastActiveAt: m.lastActiveAt, profile: p };
+    html += `<div class="raw-toggle"><details>
+      <summary>Raw JSON</summary>
+      <div class="raw-json">${JSON.stringify(rawData, null, 2)}</div>
+    </details></div>`;
+
+    return html;
   }
 
   function closeModal(e) {
