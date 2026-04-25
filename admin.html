@@ -439,8 +439,28 @@
   const TYPES = ["vendor", "shopper", "artist", "organizer", "influencer"];
   const TYPE_LABELS = { vendor: "Vendors", shopper: "Shoppers", artist: "Artists", organizer: "Organizers", influencer: "Influencers" };
 
+  // Normalize AI output → canonical type. AI may capitalise or use "community organizer".
+  function normalizeType(raw) {
+    if (!raw) return "unknown";
+    const s = raw.toLowerCase().trim();
+    if (s.includes("organizer") || s.includes("organiser")) return "organizer";
+    if (s.includes("vendor") || s.includes("business")) return "vendor";
+    if (s.includes("shopper")) return "shopper";
+    if (s.includes("artist")) return "artist";
+    if (s.includes("influencer")) return "influencer";
+    return s;
+  }
+
+  function getMemberType(m) {
+    return normalizeType(m.profile?.memberType);
+  }
+
+  function getMemberSource(m) {
+    return m.source || m.meta?.source || "web";
+  }
+
   function countByType(type) {
-    return allMembers.filter(m => (m.profile?.memberType || "unknown") === type).length;
+    return allMembers.filter(m => getMemberType(m) === type).length;
   }
 
   function buildStats() {
@@ -451,8 +471,8 @@
       const n = countByType(t);
       if (n > 0) html += `<div class="stat-card"><div class="num">${n}</div><div class="label">${TYPE_LABELS[t]}</div></div>`;
     }
-    const sms = allMembers.filter(m => m.source === "sms").length;
-    const web = allMembers.filter(m => m.source === "web").length;
+    const sms = allMembers.filter(m => getMemberSource(m) === "sms").length;
+    const web = allMembers.filter(m => getMemberSource(m) === "web").length;
     html += `<div class="stat-card"><div class="num">${sms}</div><div class="label">Via SMS</div></div>`;
     html += `<div class="stat-card"><div class="num">${web}</div><div class="label">Via Web</div></div>`;
     el.innerHTML = html;
@@ -478,7 +498,7 @@
   // ── Render table ──
   function render() {
     const query = document.getElementById("searchInput").value.toLowerCase();
-    let members = activeFilter === "all" ? allMembers : allMembers.filter(m => (m.profile?.memberType || "unknown") === activeFilter);
+    let members = activeFilter === "all" ? allMembers : allMembers.filter(m => getMemberType(m) === activeFilter);
 
     if (query) {
       members = members.filter(m => JSON.stringify(m.profile || {}).toLowerCase().includes(query));
@@ -502,10 +522,10 @@
 
     tbody.innerHTML = members.map(m => {
       const p = m.profile || {};
-      const type = p.memberType || "unknown";
+      const type = getMemberType(m);
       const keyInfo = getKeyInfo(type, p);
       const location = p.city || p.neighborhood || "—";
-      const source = m.source || "web";
+      const source = getMemberSource(m);
       const lastActive = m.lastActiveAt ? timeAgo(m.lastActiveAt._seconds * 1000) : "—";
       const id = m.id;
 
@@ -541,10 +561,10 @@
     const m = allMembers.find(x => x.id === id);
     if (!m) return;
     const p = m.profile || {};
-    const type = p.memberType || "unknown";
+    const type = getMemberType(m);
 
     document.getElementById("modalTitle").innerHTML =
-      `<span class="badge badge-${type}">${type}</span> <span style="color:#6b7280;font-weight:400">${m.source === "sms" ? "SMS member" : "Web member"}</span>`;
+      `<span class="badge badge-${type}">${type}</span> <span style="color:#6b7280;font-weight:400">${getMemberSource(m) === "sms" ? "SMS member" : "Web member"}</span>`;
     document.getElementById("modalId").innerHTML =
       `${m.id} <button class="copy-btn" onclick="copyId('${escapeId(m.id)}')">copy</button>`;
     document.getElementById("modalBody").innerHTML = buildProfileHtml(type, p, m);
@@ -566,6 +586,7 @@
   ]);
 
   function buildProfileHtml(type, p, m) {
+    type = normalizeType(type); // ensure consistent type even if passed raw AI value
     const shown = new Set();
     let html = "";
 
