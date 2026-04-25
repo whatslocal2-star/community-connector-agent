@@ -240,8 +240,16 @@
   const inputEl = document.getElementById("input");
   const sendBtn = document.getElementById("sendBtn");
 
-  // conversation history sent to the API
   let history = [];
+
+  function getSessionId() {
+    let id = localStorage.getItem("cc_session_id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("cc_session_id", id);
+    }
+    return id;
+  }
 
   function now() {
     return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -336,7 +344,7 @@
       const res = await fetch("/.netlify/functions/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: history, sessionId: getSessionId() }),
       });
 
       const data = await res.json();
