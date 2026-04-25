@@ -22,6 +22,15 @@ export async function loadConversation(id) {
   return doc.data().history ?? [];
 }
 
+export async function loadAllMembers(limit = 500) {
+  const db = getDb();
+  const snap = await db.collection("members")
+    .orderBy("lastActiveAt", "desc")
+    .limit(limit)
+    .get();
+  return snap.docs.map(doc => ({ id: doc.id, ...doc.data(), history: undefined }));
+}
+
 export async function saveMember(id, { history, profileUpdate, meta = {} }) {
   const db = getDb();
   const update = { lastActiveAt: FieldValue.serverTimestamp(), ...meta };

@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Community Connector — Admin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #111827;
+      min-height: 100vh;
+    }
+
+    /* ── Login ── */
+    .login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .login-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    .login-card h1 { font-size: 20px; margin-bottom: 6px; }
+    .login-card p  { font-size: 13px; color: #6b7280; margin-bottom: 24px; }
+    .login-card input {
+      width: 100%; padding: 10px 14px;
+      border: 1px solid #d1d5db; border-radius: 8px;
+      font-size: 14px; outline: none; margin-bottom: 12px;
+    }
+    .login-card input:focus { border-color: #2d6a4f; }
+    .login-card button {
+      width: 100%; padding: 10px;
+      background: #2d6a4f; color: #fff;
+      border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .login-card button:hover { background: #1b4332; }
+    .login-error { color: #dc2626; font-size: 13px; margin-top: 10px; }
+
+    /* ── App shell ── */
+    .app { display: none; flex-direction: column; min-height: 100vh; }
+
+    header {
+      background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
+      color: #fff;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.3px; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .refresh-btn {
+      background: rgba(255,255,255,0.15); border: none; border-radius: 8px;
+      color: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer;
+    }
+    .refresh-btn:hover { background: rgba(255,255,255,0.25); }
+    .logout-btn {
+      background: none; border: none; color: rgba(255,255,255,0.7);
+      font-size: 13px; cursor: pointer;
+    }
+    .logout-btn:hover { color: #fff; }
+
+    /* ── Stats bar ── */
+    .stats {
+      display: flex;
+      gap: 12px;
+      padding: 16px 24px;
+      overflow-x: auto;
+    }
+    .stat-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 14px 20px;
+      min-width: 120px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      flex-shrink: 0;
+    }
+    .stat-card .num { font-size: 28px; font-weight: 700; color: #111827; line-height: 1; }
+    .stat-card .label { font-size: 11px; color: #6b7280; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ── Filters ── */
+    .filters {
+      padding: 0 24px 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .filter-btn {
+      padding: 6px 16px;
+      border-radius: 20px;
+      border: 1.5px solid #d1d5db;
+      background: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .filter-btn.active {
+      background: #2d6a4f;
+      border-color: #2d6a4f;
+      color: #fff;
+    }
+    .filter-btn .count {
+      background: rgba(0,0,0,0.1);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .filter-btn.active .count { background: rgba(255,255,255,0.25); }
+
+    /* ── Search ── */
+    .search-bar {
+      padding: 0 24px 16px;
+    }
+    .search-bar input {
+      width: 100%; max-width: 400px;
+      padding: 9px 14px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+    }
+    .search-bar input:focus { border-color: #2d6a4f; }
+
+    /* ── Table ── */
+    .table-wrap {
+      flex: 1;
+      padding: 0 24px 24px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      font-size: 13px;
+    }
+    th {
+      background: #f9fafb;
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #6b7280;
+      border-bottom: 1px solid #e5e7eb;
+      white-space: nowrap;
+    }
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #f3f4f6;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f9fafb; cursor: pointer; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: capitalize;
+      white-space: nowrap;
+    }
+    .badge-vendor     { background: #d1fae5; color: #065f46; }
+    .badge-shopper    { background: #dbeafe; color: #1e40af; }
+    .badge-artist     { background: #ede9fe; color: #5b21b6; }
+    .badge-organizer  { background: #fef3c7; color: #92400e; }
+    .badge-influencer { background: #fce7f3; color: #9d174d; }
+    .badge-unknown    { background: #f3f4f6; color: #6b7280; }
+
+    .source-tag {
+      font-size: 11px;
+      color: #9ca3af;
+      background: #f3f4f6;
+      padding: 2px 7px;
+      border-radius: 8px;
+    }
+
+    .key-info { color: #374151; }
+    .key-info .dim { color: #9ca3af; font-size: 12px; }
+
+    .time { color: #9ca3af; font-size: 12px; white-space: nowrap; }
+
+    .empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: #9ca3af;
+    }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 560px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    .modal-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky; top: 0;
+      background: #fff;
+    }
+    .modal-header h2 { font-size: 16px; }
+    .modal-close {
+      background: none; border: none;
+      font-size: 20px; cursor: pointer; color: #9ca3af;
+      line-height: 1;
+    }
+    .modal-close:hover { color: #111; }
+    .modal-body { padding: 20px 24px; }
+    .field-group { margin-bottom: 16px; }
+    .field-label {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: #9ca3af;
+      margin-bottom: 4px;
+    }
+    .field-value { font-size: 14px; color: #111827; word-break: break-word; }
+    .field-value a { color: #2d6a4f; text-decoration: none; }
+    .field-value a:hover { text-decoration: underline; }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .tag {
+      background: #f3f4f6; border-radius: 8px;
+      padding: 3px 10px; font-size: 12px; color: #374151;
+    }
+
+    .loading {
+      text-align: center; padding: 60px;
+      color: #9ca3af; font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Login -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div style="font-size:32px;margin-bottom:12px">🌿</div>
+    <h1>Admin Dashboard</h1>
+    <p>Community Connector</p>
+    <input type="password" id="tokenInput" placeholder="Enter admin token" />
+    <button onclick="login()">Sign in</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div class="app" id="app">
+  <header>
+    <h1>🌿 Community Connector — Admin</h1>
+    <div class="header-right">
+      <button class="refresh-btn" onclick="loadMembers()">↻ Refresh</button>
+      <button class="logout-btn" onclick="logout()">Sign out</button>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="filters" id="filters"></div>
+
+  <div class="search-bar">
+    <input type="search" id="searchInput" placeholder="Search by city, discipline, niche, cause…" oninput="render()" />
+  </div>
+
+  <div class="table-wrap">
+    <div class="loading" id="loading">Loading members…</div>
+    <table id="table" style="display:none">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Key Info</th>
+          <th>Location</th>
+          <th>Source</th>
+          <th>Last Active</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none">No members match your filter.</div>
+  </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">Member Profile</h2>
+      <button class="modal-close" onclick="closeModalDirect()">×</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+  let allMembers = [];
+  let activeFilter = "all";
+
+  // ── Auth ──
+  function login() {
+    const token = document.getElementById("tokenInput").value.trim();
+    if (!token) return;
+    sessionStorage.setItem("admin_token", token);
+    init();
+  }
+
+  function logout() {
+    sessionStorage.removeItem("admin_token");
+    document.getElementById("app").style.display = "none";
+    document.getElementById("loginScreen").style.display = "flex";
+    document.getElementById("tokenInput").value = "";
+  }
+
+  document.getElementById("tokenInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") login();
+  });
+
+  // ── Init ──
+  function init() {
+    const token = sessionStorage.getItem("admin_token");
+    if (!token) return;
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("app").style.display = "flex";
+    loadMembers();
+  }
+
+  async function loadMembers() {
+    const token = sessionStorage.getItem("admin_token");
+    document.getElementById("loading").style.display = "block";
+    document.getElementById("table").style.display = "none";
+    document.getElementById("empty").style.display = "none";
+
+    try {
+      const res = await fetch("/.netlify/functions/admin", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 401) {
+        document.getElementById("loginError").textContent = "Invalid token.";
+        logout();
+        return;
+      }
+
+      const { members } = await res.json();
+      allMembers = members || [];
+      buildStats();
+      buildFilters();
+      render();
+    } catch (err) {
+      document.getElementById("loading").textContent = "Failed to load. Check your connection.";
+    }
+  }
+
+  // ── Stats ──
+  const TYPES = ["vendor", "shopper", "artist", "organizer", "influencer"];
+  const TYPE_LABELS = { vendor: "Vendors", shopper: "Shoppers", artist: "Artists", organizer: "Organizers", influencer: "Influencers" };
+
+  function countByType(type) {
+    return allMembers.filter(m => (m.profile?.memberType || "unknown") === type).length;
+  }
+
+  function buildStats() {
+    const el = document.getElementById("stats");
+    const total = allMembers.length;
+    let html = `<div class="stat-card"><div class="num">${total}</div><div class="label">Total Members</div></div>`;
+    for (const t of TYPES) {
+      const n = countByType(t);
+      if (n > 0) html += `<div class="stat-card"><div class="num">${n}</div><div class="label">${TYPE_LABELS[t]}</div></div>`;
+    }
+    const sms = allMembers.filter(m => m.source === "sms").length;
+    const web = allMembers.filter(m => m.source === "web").length;
+    html += `<div class="stat-card"><div class="num">${sms}</div><div class="label">Via SMS</div></div>`;
+    html += `<div class="stat-card"><div class="num">${web}</div><div class="label">Via Web</div></div>`;
+    el.innerHTML = html;
+  }
+
+  function buildFilters() {
+    const el = document.getElementById("filters");
+    const allCount = allMembers.length;
+    let html = `<button class="filter-btn ${activeFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">All <span class="count">${allCount}</span></button>`;
+    for (const t of TYPES) {
+      const n = countByType(t);
+      html += `<button class="filter-btn ${activeFilter === t ? 'active' : ''}" onclick="setFilter('${t}')">${TYPE_LABELS[t]} <span class="count">${n}</span></button>`;
+    }
+    el.innerHTML = html;
+  }
+
+  function setFilter(type) {
+    activeFilter = type;
+    buildFilters();
+    render();
+  }
+
+  // ── Render table ──
+  function render() {
+    const query = document.getElementById("searchInput").value.toLowerCase();
+    let members = activeFilter === "all" ? allMembers : allMembers.filter(m => (m.profile?.memberType || "unknown") === activeFilter);
+
+    if (query) {
+      members = members.filter(m => JSON.stringify(m.profile || {}).toLowerCase().includes(query));
+    }
+
+    const tbody = document.getElementById("tbody");
+    const loading = document.getElementById("loading");
+    const table = document.getElementById("table");
+    const empty = document.getElementById("empty");
+
+    loading.style.display = "none";
+
+    if (members.length === 0) {
+      table.style.display = "none";
+      empty.style.display = "block";
+      return;
+    }
+
+    table.style.display = "table";
+    empty.style.display = "none";
+
+    tbody.innerHTML = members.map(m => {
+      const p = m.profile || {};
+      const type = p.memberType || "unknown";
+      const keyInfo = getKeyInfo(type, p);
+      const location = p.city || p.neighborhood || "—";
+      const source = m.source || "web";
+      const lastActive = m.lastActiveAt ? timeAgo(m.lastActiveAt._seconds * 1000) : "—";
+      const id = m.id;
+
+      return `<tr onclick="openModal('${escapeId(id)}')">
+        <td><span class="badge badge-${type}">${type}</span></td>
+        <td class="key-info">${keyInfo}</td>
+        <td>${location}</td>
+        <td><span class="source-tag">${source}</span></td>
+        <td class="time">${lastActive}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function getKeyInfo(type, p) {
+    switch (type) {
+      case "vendor":     return p.approvedBlurb || p.businessDescription || p.businessLink || `<span class="dim">No details yet</span>`;
+      case "shopper":    return p.interests?.join(", ") || `<span class="dim">No interests yet</span>`;
+      case "artist":     return [p.discipline, p.venueTypes?.join(", ")].filter(Boolean).join(" · ") || `<span class="dim">No details yet</span>`;
+      case "organizer":  return p.cause || `<span class="dim">No cause listed yet</span>`;
+      case "influencer": return [p.niche, p.platforms?.join(", ")].filter(Boolean).join(" · ") || `<span class="dim">No details yet</span>`;
+      default:           return `<span class="dim">Onboarding in progress</span>`;
+    }
+  }
+
+  // ── Modal ──
+  const memberMap = {};
+
+  function escapeId(id) {
+    return id.replace(/['"]/g, "");
+  }
+
+  function openModal(id) {
+    const m = allMembers.find(x => x.id === id);
+    if (!m) return;
+    const p = m.profile || {};
+    const type = p.memberType || "unknown";
+
+    document.getElementById("modalTitle").innerHTML = `<span class="badge badge-${type}" style="margin-right:8px">${type}</span> ${m.id}`;
+    document.getElementById("modalBody").innerHTML = buildProfileHtml(type, p, m);
+    document.getElementById("modalOverlay").classList.add("open");
+  }
+
+  function buildProfileHtml(type, p, m) {
+    const fields = [];
+
+    const add = (label, value) => {
+      if (!value && value !== false) return;
+      let display;
+      if (Array.isArray(value)) {
+        display = `<div class="tag-list">${value.map(v => `<span class="tag">${v}</span>`).join("")}</div>`;
+      } else if (typeof value === "boolean") {
+        display = `<div class="field-value">${value ? "Yes" : "No"}</div>`;
+      } else if (typeof value === "string" && (value.startsWith("http") || value.includes("."))) {
+        display = `<div class="field-value"><a href="${value.startsWith("http") ? value : "https://" + value}" target="_blank">${value}</a></div>`;
+      } else {
+        display = `<div class="field-value">${value}</div>`;
+      }
+      fields.push(`<div class="field-group"><div class="field-label">${label}</div>${display}</div>`);
+    };
+
+    // Common
+    add("Member Type", p.memberType);
+    add("Source", m.source);
+
+    if (type === "vendor") {
+      add("Business Link", p.businessLink);
+      add("Approved Blurb", p.approvedBlurb);
+      add("Description", p.businessDescription);
+      add("Sharing", p.shareTypes);
+      add("Event Platforms", p.eventPlatforms);
+      add("Open to Business Collabs", p.openToBusinessCollabs);
+    } else if (type === "shopper") {
+      add("Neighborhood", p.neighborhood);
+      add("Interests", p.interests);
+      add("Stay Connected Preference", p.stayConnectedPreference);
+      add("Personal Note", p.personalNote);
+    } else if (type === "artist") {
+      add("Discipline", p.discipline);
+      add("City", p.city);
+      add("Travel Radius", p.travelRadius);
+      add("Venue Types", p.venueTypes);
+      add("Portfolio Link", p.portfolioLink);
+      add("Event Platforms", p.eventPlatforms);
+      add("Open to Artist Collabs", p.openToArtistCollabs);
+    } else if (type === "organizer") {
+      add("Cause / Community", p.cause);
+      add("Impact Goals", p.impactGoals);
+      add("Connect With", p.connectWith);
+      add("Org Link", p.orgLink);
+      add("Open to Other Communities", p.openToOtherCommunities);
+    } else if (type === "influencer") {
+      add("Niche", p.niche);
+      add("Platforms", p.platforms);
+      add("Audience Size", p.audienceSize);
+      add("Partnership Types", p.partnershipTypes);
+      add("Profile Link", p.profileLink);
+    }
+
+    add("Onboarding Complete", p.onboardingComplete);
+
+    if (m.lastActiveAt) {
+      fields.push(`<div class="field-group"><div class="field-label">Last Active</div><div class="field-value">${new Date(m.lastActiveAt._seconds * 1000).toLocaleString()}</div></div>`);
+    }
+
+    return fields.length ? `<div class="field-grid">${fields.join("")}</div>` : `<p style="color:#9ca3af">No profile data collected yet.</p>`;
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById("modalOverlay")) closeModalDirect();
+  }
+  function closeModalDirect() {
+    document.getElementById("modalOverlay").classList.remove("open");
+  }
+
+  // ── Helpers ──
+  function timeAgo(ms) {
+    const diff = Date.now() - ms;
+    const m = Math.floor(diff / 60000);
+    if (m < 1)  return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return `${d}d ago`;
+  }
+
+  // ── Boot ──
+  init();
+</script>
+</body>
+</html>
