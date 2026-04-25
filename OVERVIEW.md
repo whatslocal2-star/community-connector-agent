@@ -88,6 +88,17 @@ Built `/admin.html` — a token-protected dashboard for viewing all members:
 ## Member Types
 `vendor` · `shopper` · `artist` · `organizer` · `influencer`
 
+## Checkpoint 10 — Admin modal redesign (show all member data)
+Rewrote the click-to-expand profile modal in `admin.html`:
+- **Sectioned layout** replaces the old cramped 2-column grid: Account, type-specific profile, catch-all extras, raw JSON
+- **Label/value rows** — full-width, readable, no truncation
+- **Member ID** shown prominently with a copy button
+- **Catch-all section** — iterates over all profile keys not in the explicit template so no data is ever silently dropped as new fields are added
+- **Collapsible raw JSON** at the bottom for full data visibility
+- Boolean fields styled (Yes ✓ / No), strings matching URL patterns auto-linked
+
+---
+
 ## Key Files
 ```
 index.html                          — Web chat UI
