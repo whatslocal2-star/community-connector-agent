@@ -16,6 +16,12 @@
       min-height: 100vh;
     }
 
+    .page-layout {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
     .chat-wrapper {
       width: 100%;
       max-width: 480px;
@@ -200,55 +206,330 @@
     @media (max-height: 700px) {
       .chat-wrapper { border-radius: 0; max-height: 100vh; }
     }
+
+    /* ── Dev Toolbar ── */
+    .dev-toolbar {
+      display: none;
+      width: 210px;
+      height: min(700px, 100vh);
+      background: #13131f;
+      border-radius: 14px;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    @media (min-width: 860px) {
+      .dev-toolbar { display: flex; }
+    }
+
+    .dev-header {
+      padding: 13px 14px 11px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dev-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #a855f7;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .dev-badge {
+      font-size: 10px;
+      color: rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.07);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+
+    .dev-new-btn {
+      margin: 10px 10px 6px;
+      padding: 8px 12px;
+      background: rgba(168,85,247,0.12);
+      border: 1px solid rgba(168,85,247,0.35);
+      border-radius: 8px;
+      color: #c084fc;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, border-color 0.15s;
+      width: calc(100% - 20px);
+    }
+    .dev-new-btn:hover {
+      background: rgba(168,85,247,0.22);
+      border-color: rgba(168,85,247,0.55);
+    }
+
+    .dev-persona-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2px 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .dev-persona-list::-webkit-scrollbar { width: 3px; }
+    .dev-persona-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+    .dev-persona-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 9px;
+      padding: 9px 10px 8px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .dev-persona-card:hover {
+      background: rgba(255,255,255,0.08);
+    }
+    .dev-persona-card.active {
+      background: rgba(45,106,79,0.2);
+      border-color: rgba(64,145,108,0.45);
+    }
+
+    .dev-persona-name {
+      font-size: 13px;
+      color: #e2e8f0;
+      font-weight: 500;
+      outline: none;
+      border-radius: 4px;
+      margin-bottom: 3px;
+      cursor: text;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 18px;
+    }
+    .dev-persona-name:focus {
+      background: rgba(255,255,255,0.1);
+      padding: 1px 5px;
+      white-space: normal;
+      overflow: visible;
+    }
+
+    .dev-persona-uid {
+      font-size: 10px;
+      color: rgba(255,255,255,0.28);
+      font-family: "SF Mono", "Fira Code", monospace;
+      margin-bottom: 7px;
+      cursor: default;
+      user-select: all;
+    }
+
+    .dev-persona-actions {
+      display: flex;
+      gap: 5px;
+    }
+
+    .dev-switch-btn {
+      flex: 1;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-family: inherit;
+      background: rgba(64,145,108,0.18);
+      border: 1px solid rgba(64,145,108,0.38);
+      border-radius: 5px;
+      color: #74c69d;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .dev-switch-btn:hover:not(:disabled) {
+      background: rgba(64,145,108,0.32);
+    }
+    .dev-switch-btn:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    .dev-refresh-btn {
+      padding: 4px 9px;
+      font-size: 13px;
+      font-family: inherit;
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 5px;
+      color: #f87171;
+      cursor: pointer;
+      transition: background 0.15s;
+      line-height: 1;
+    }
+    .dev-refresh-btn:hover {
+      background: rgba(239,68,68,0.24);
+    }
+
+    .dev-footer {
+      padding: 9px 14px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 10px;
+      color: rgba(255,255,255,0.2);
+      letter-spacing: 0.04em;
+    }
   </style>
 </head>
 <body>
-<div class="chat-wrapper">
-  <div class="header">
-    <div class="header-avatar">🌿</div>
-    <div class="header-info">
-      <h2>Community Connector</h2>
-      <p><span class="status-dot"></span>Vendors · Shoppers · Artists · Organizers · Influencers</p>
+<div class="page-layout">
+
+  <!-- Dev toolbar (desktop only) -->
+  <div class="dev-toolbar" id="devToolbar">
+    <div class="dev-header">
+      <span class="dev-title">DEV</span>
+      <span class="dev-badge">personas</span>
+    </div>
+    <button class="dev-new-btn" id="devNewBtn">+ New Persona</button>
+    <div class="dev-persona-list" id="devPersonaList"></div>
+    <div class="dev-footer">click name to rename</div>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat-wrapper">
+    <div class="header">
+      <div class="header-avatar">🌿</div>
+      <div class="header-info">
+        <h2>Community Connector</h2>
+        <p><span class="status-dot"></span>Vendors · Shoppers · Artists · Organizers · Influencers</p>
+      </div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="welcome"><span>Say hi to get started 👋</span></div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea
+          id="input"
+          rows="1"
+          placeholder="Type a message..."
+          autocomplete="off"
+          spellcheck="true"
+        ></textarea>
+      </div>
+      <button class="send-btn" id="sendBtn" aria-label="Send">
+        <svg class="send-icon" viewBox="0 0 24 24">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
     </div>
   </div>
 
-  <div class="messages" id="messages">
-    <div class="welcome"><span>Say hi to get started 👋</span></div>
-  </div>
-
-  <div class="input-area">
-    <div class="input-wrap">
-      <textarea
-        id="input"
-        rows="1"
-        placeholder="Type a message..."
-        autocomplete="off"
-        spellcheck="true"
-      ></textarea>
-    </div>
-    <button class="send-btn" id="sendBtn" aria-label="Send">
-      <svg class="send-icon" viewBox="0 0 24 24">
-        <line x1="22" y1="2" x2="11" y2="13"/>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-      </svg>
-    </button>
-  </div>
 </div>
 
 <script>
   const messagesEl = document.getElementById("messages");
-  const inputEl = document.getElementById("input");
-  const sendBtn = document.getElementById("sendBtn");
+  const inputEl    = document.getElementById("input");
+  const sendBtn    = document.getElementById("sendBtn");
 
   let history = [];
 
-  function getSessionId() {
-    let id = localStorage.getItem("cc_session_id");
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem("cc_session_id", id);
+  // ── Persona store ──────────────────────────────────────────────
+  const PERSONAS_KEY      = "cc_personas";
+  const ACTIVE_PERSONA_KEY = "cc_active_persona";
+
+  function loadPersonas() {
+    try { return JSON.parse(localStorage.getItem(PERSONAS_KEY) || "[]"); }
+    catch { return []; }
+  }
+
+  function savePersonas(personas) {
+    localStorage.setItem(PERSONAS_KEY, JSON.stringify(personas));
+  }
+
+  function getActivePersonaId() {
+    return localStorage.getItem(ACTIVE_PERSONA_KEY);
+  }
+
+  function setActivePersonaId(id) {
+    localStorage.setItem(ACTIVE_PERSONA_KEY, id);
+  }
+
+  function getActivePersona() {
+    const personas = loadPersonas();
+    const id = getActivePersonaId();
+    return personas.find(p => p.id === id) || personas[0] || null;
+  }
+
+  function initPersonas() {
+    let personas = loadPersonas();
+    if (personas.length === 0) {
+      const uid = localStorage.getItem("cc_session_id") || crypto.randomUUID();
+      const first = { id: crypto.randomUUID(), name: "User 1", uid, history: [] };
+      personas = [first];
+      savePersonas(personas);
+      setActivePersonaId(first.id);
     }
-    return id;
+    const activeId = getActivePersonaId();
+    if (!personas.find(p => p.id === activeId)) {
+      setActivePersonaId(personas[0].id);
+    }
+  }
+
+  function createPersona() {
+    const personas = loadPersonas();
+    const p = {
+      id: crypto.randomUUID(),
+      name: `User ${personas.length + 1}`,
+      uid: crypto.randomUUID(),
+      history: [],
+    };
+    personas.push(p);
+    savePersonas(personas);
+    return p;
+  }
+
+  function saveCurrentHistory() {
+    const p = getActivePersona();
+    if (!p) return;
+    const personas = loadPersonas();
+    const idx = personas.findIndex(x => x.id === p.id);
+    if (idx >= 0) {
+      personas[idx].history = history;
+      savePersonas(personas);
+    }
+  }
+
+  function switchToPersona(personaId) {
+    saveCurrentHistory();
+    setActivePersonaId(personaId);
+    const personas = loadPersonas();
+    const p = personas.find(x => x.id === personaId);
+    if (!p) return;
+    localStorage.setItem("cc_session_id", p.uid);
+    history = p.history ? [...p.history] : [];
+    renderChat();
+    renderPersonaList();
+  }
+
+  function refreshPersonaUid(personaId) {
+    const personas = loadPersonas();
+    const idx = personas.findIndex(p => p.id === personaId);
+    if (idx < 0) return;
+    personas[idx].uid = crypto.randomUUID();
+    personas[idx].history = [];
+    savePersonas(personas);
+    if (getActivePersonaId() === personaId) {
+      localStorage.setItem("cc_session_id", personas[idx].uid);
+      history = [];
+      renderChat();
+    }
+    renderPersonaList();
+  }
+
+  // ── Chat rendering ─────────────────────────────────────────────
+  function renderChat() {
+    messagesEl.innerHTML = "";
+    if (history.length === 0) {
+      messagesEl.innerHTML = '<div class="welcome"><span>Say hi to get started 👋</span></div>';
+    } else {
+      for (const msg of history) {
+        addMessage(msg.role === "assistant" ? "agent" : "user", msg.content);
+      }
+    }
   }
 
   function now() {
@@ -323,11 +604,18 @@
     inputEl.disabled = loading;
   }
 
+  function getSessionId() {
+    const p = getActivePersona();
+    if (p) return p.uid;
+    let id = localStorage.getItem("cc_session_id");
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem("cc_session_id", id); }
+    return id;
+  }
+
   async function send() {
     const text = inputEl.value.trim();
     if (!text) return;
 
-    // Remove welcome banner on first message
     const welcome = messagesEl.querySelector(".welcome");
     if (welcome) welcome.remove();
 
@@ -357,6 +645,7 @@
 
       addMessage("agent", data.reply);
       history.push({ role: "assistant", content: data.reply });
+      saveCurrentHistory();
     } catch (err) {
       removeTyping();
       addMessage("agent", "Connection error. Please check your network and try again.");
@@ -375,11 +664,110 @@
     }
   });
 
-  // Auto-resize textarea
   inputEl.addEventListener("input", () => {
     inputEl.style.height = "auto";
     inputEl.style.height = inputEl.scrollHeight + "px";
   });
+
+  // ── Dev toolbar rendering ──────────────────────────────────────
+  function renderPersonaList() {
+    const listEl = document.getElementById("devPersonaList");
+    if (!listEl) return;
+
+    const personas = loadPersonas();
+    const activeId = getActivePersonaId();
+    listEl.innerHTML = "";
+
+    for (const persona of personas) {
+      const isActive = persona.id === activeId;
+
+      const card = document.createElement("div");
+      card.className = "dev-persona-card" + (isActive ? " active" : "");
+
+      // Editable name
+      const nameEl = document.createElement("div");
+      nameEl.className = "dev-persona-name";
+      nameEl.contentEditable = "true";
+      nameEl.spellcheck = false;
+      nameEl.textContent = persona.name;
+      nameEl.addEventListener("blur", () => {
+        const updated = loadPersonas();
+        const i = updated.findIndex(p => p.id === persona.id);
+        if (i >= 0) {
+          updated[i].name = nameEl.textContent.trim() || persona.name;
+          savePersonas(updated);
+        }
+      });
+      nameEl.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); nameEl.blur(); }
+      });
+      // Prevent card click from firing when editing name
+      nameEl.addEventListener("click", e => e.stopPropagation());
+      card.appendChild(nameEl);
+
+      // UID display
+      const uidEl = document.createElement("div");
+      uidEl.className = "dev-persona-uid";
+      uidEl.textContent = persona.uid.slice(0, 8) + "…";
+      uidEl.title = persona.uid;
+      card.appendChild(uidEl);
+
+      // Action buttons
+      const actions = document.createElement("div");
+      actions.className = "dev-persona-actions";
+
+      const switchBtn = document.createElement("button");
+      switchBtn.className = "dev-switch-btn";
+      switchBtn.textContent = isActive ? "Active" : "Switch";
+      switchBtn.disabled = isActive;
+      switchBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        if (!isActive) switchToPersona(persona.id);
+      });
+      actions.appendChild(switchBtn);
+
+      const refreshBtn = document.createElement("button");
+      refreshBtn.className = "dev-refresh-btn";
+      refreshBtn.textContent = "↻";
+      refreshBtn.title = "New UID — clears chat history";
+      refreshBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        if (confirm(`Reset UID for "${persona.name}"?\nThis clears their chat history.`)) {
+          refreshPersonaUid(persona.id);
+        }
+      });
+      actions.appendChild(refreshBtn);
+
+      card.appendChild(actions);
+
+      // Click card body to switch
+      card.addEventListener("click", () => {
+        if (!isActive) switchToPersona(persona.id);
+      });
+
+      listEl.appendChild(card);
+    }
+  }
+
+  document.getElementById("devNewBtn").addEventListener("click", () => {
+    const p = createPersona();
+    switchToPersona(p.id);
+    // Focus the new persona's name for immediate renaming
+    setTimeout(() => {
+      const nameEl = document.querySelector(".dev-persona-card.active .dev-persona-name");
+      if (nameEl) { nameEl.focus(); document.execCommand("selectAll"); }
+    }, 60);
+  });
+
+  // ── Boot ───────────────────────────────────────────────────────
+  initPersonas();
+  const bootPersona = getActivePersona();
+  if (bootPersona) {
+    history = bootPersona.history ? [...bootPersona.history] : [];
+    localStorage.setItem("cc_session_id", bootPersona.uid);
+  }
+  renderChat();
+  renderPersonaList();
 </script>
 </body>
 </html>
