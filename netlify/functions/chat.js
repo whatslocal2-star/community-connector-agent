@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
-import { UPDATE_PROFILE_TOOL, extractProfileUpdate, getReply } from "./lib/profileTool.js";
+import { parseCompletion } from "./lib/profileTool.js";
 import { saveMember } from "./lib/db.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -27,12 +27,10 @@ export const handler = async (event) => {
       model: "gpt-4o-mini",
       max_tokens: 512,
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
-      tools: [UPDATE_PROFILE_TOOL],
-      tool_choice: "auto",
+      response_format: { type: "json_object" },
     });
 
-    const reply = getReply(completion);
-    const profileUpdate = extractProfileUpdate(completion);
+    const { reply, profileUpdate } = parseCompletion(completion);
 
     if (sessionId && profileUpdate) {
       saveMember(sessionId, {

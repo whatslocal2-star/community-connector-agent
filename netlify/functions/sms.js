@@ -1,12 +1,11 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
-import { UPDATE_PROFILE_TOOL, extractProfileUpdate, getReply } from "./lib/profileTool.js";
+import { parseCompletion } from "./lib/profileTool.js";
 import { loadConversation, saveMember } from "./lib/db.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
 
-// SMS: same flow, tighter replies
 const SMS_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
   "- Keep responses SHORT and conversational — like a friendly text exchange",
   "- Keep responses SHORT — this is SMS, 1-3 sentences max"
@@ -66,14 +65,13 @@ export const handler = async (event) => {
       model: "gpt-4o-mini",
       max_tokens: 300,
       messages: [{ role: "system", content: SMS_SYSTEM_PROMPT }, ...history],
-      tools: [UPDATE_PROFILE_TOOL],
-      tool_choice: "auto",
+      response_format: { type: "json_object" },
     });
 
-    const reply = getReply(completion) || "Sorry, something went wrong. Please try again.";
-    const profileUpdate = extractProfileUpdate(completion);
+    const { reply, profileUpdate } = parseCompletion(completion);
+    const replyText = reply || "Sorry, something went wrong. Please try again.";
 
-    history.push({ role: "assistant", content: reply });
+    history.push({ role: "assistant", content: replyText });
 
     await saveMember(fromNumber, {
       history,
@@ -81,7 +79,7 @@ export const handler = async (event) => {
       meta: { phone: fromNumber, source: "sms" },
     });
 
-    await sendSms(fromNumber, replyFrom, reply);
+    await sendSms(fromNumber, replyFrom, replyText);
   } catch (err) {
     console.error("SMS handler error:", err);
     try {
