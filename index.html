@@ -19,7 +19,6 @@
     .page-layout {
       display: flex;
       align-items: center;
-      gap: 16px;
     }
 
     .chat-wrapper {
@@ -210,14 +209,17 @@
     /* ── Dev Toolbar ── */
     .dev-toolbar {
       display: none;
+      position: fixed;
+      top: 20px;
+      left: 20px;
       width: 210px;
-      height: min(700px, 100vh);
+      max-height: calc(100vh - 40px);
       background: #fff;
       border-radius: 16px;
       flex-direction: column;
       overflow: hidden;
       box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-      flex-shrink: 0;
+      z-index: 100;
     }
 
     @media (min-width: 860px) {
