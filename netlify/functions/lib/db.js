@@ -7,7 +7,6 @@ function getDb() {
       credential: cert({
         projectId:   process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // Netlify env vars escape newlines — unescape them
         privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
       }),
     });
@@ -28,22 +27,31 @@ export async function loadAllMembers(limit = 500) {
     .orderBy("lastActiveAt", "desc")
     .limit(limit)
     .get();
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data(), history: undefined }));
+  return snap.docs.map(doc => {
+    const { history, ...rest } = doc.data();
+    return { id: doc.id, ...rest };
+  });
 }
 
 export async function saveMember(id, { history, profileUpdate, meta = {} }) {
   const db = getDb();
-  const update = { lastActiveAt: FieldValue.serverTimestamp(), ...meta };
+  const ref = db.collection("members").doc(id);
 
-  if (history) update.history = history;
+  // set() with merge:true handles base fields and creates doc if needed
+  const base = { lastActiveAt: FieldValue.serverTimestamp(), ...meta };
+  if (history) base.history = history;
+  await ref.set(base, { merge: true });
 
+  // update() treats dot-notation as nested field paths — safe for incremental profile merging
   if (profileUpdate) {
+    const fields = {};
     for (const [k, v] of Object.entries(profileUpdate)) {
       if (v !== undefined && v !== null) {
-        update[`profile.${k}`] = v;
+        fields[`profile.${k}`] = v;
       }
     }
+    if (Object.keys(fields).length) {
+      await ref.update(fields);
+    }
   }
-
-  await db.collection("members").doc(id).set(update, { merge: true });
 }
