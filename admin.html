@@ -524,7 +524,7 @@
       const p = m.profile || {};
       const type = getMemberType(m);
       const keyInfo = getKeyInfo(type, p);
-      const location = p.city || p.neighborhood || "—";
+      const location = p.city || p.neighborhood || p.location || "—";
       const source = getMemberSource(m);
       const lastActive = m.lastActiveAt ? timeAgo(m.lastActiveAt._seconds * 1000) : "—";
       const id = m.id;
@@ -539,13 +539,18 @@
     }).join("");
   }
 
+  function joinOrStr(val) {
+    if (!val) return "";
+    return Array.isArray(val) ? val.join(", ") : String(val);
+  }
+
   function getKeyInfo(type, p) {
     switch (type) {
       case "vendor":     return p.approvedBlurb || p.businessDescription || p.businessLink || `<span class="dim">No details yet</span>`;
-      case "shopper":    return p.interests?.join(", ") || `<span class="dim">No interests yet</span>`;
-      case "artist":     return [p.discipline, p.venueTypes?.join(", ")].filter(Boolean).join(" · ") || `<span class="dim">No details yet</span>`;
+      case "shopper":    return joinOrStr(p.interests) || `<span class="dim">No interests yet</span>`;
+      case "artist":     return [p.discipline, joinOrStr(p.venueTypes)].filter(Boolean).join(" · ") || `<span class="dim">No details yet</span>`;
       case "organizer":  return p.cause || `<span class="dim">No cause listed yet</span>`;
-      case "influencer": return [p.niche, p.platforms?.join(", ")].filter(Boolean).join(" · ") || `<span class="dim">No details yet</span>`;
+      case "influencer": return [p.niche, joinOrStr(p.platforms)].filter(Boolean).join(" · ") || `<span class="dim">No details yet</span>`;
       default:           return `<span class="dim">Onboarding in progress</span>`;
     }
   }
@@ -578,11 +583,11 @@
   // All known profile keys — used to detect extras
   const KNOWN_PROFILE_KEYS = new Set([
     "memberType","businessLink","businessDescription","approvedBlurb","shareTypes",
-    "openToBusinessCollabs","eventPlatforms","interests","neighborhood","personalNote",
-    "stayConnectedPreference","discipline","venueTypes","portfolioLink","city",
-    "travelRadius","openToArtistCollabs","cause","impactGoals","connectWith",
-    "orgLink","openToOtherCommunities","niche","platforms","audienceSize",
-    "partnershipTypes","profileLink","onboardingComplete",
+    "openToBusinessCollabs","eventPlatforms","interests","neighborhood","location",
+    "personalNote","stayConnectedPreference","connectionPreference","discipline",
+    "venueTypes","portfolioLink","city","travelRadius","openToArtistCollabs",
+    "cause","impactGoals","connectWith","orgLink","openToOtherCommunities",
+    "niche","platforms","audienceSize","partnershipTypes","profileLink","onboardingComplete",
   ]);
 
   function buildProfileHtml(type, p, m) {
@@ -637,9 +642,9 @@
       ]);
     } else if (type === "shopper") {
       html += section("Shopper Profile", [
-        row("Neighborhood", p.neighborhood),
+        row("Neighborhood / Location", p.neighborhood || p.location),
         row("Interests", p.interests),
-        row("Stay Connected Preference", p.stayConnectedPreference),
+        row("Stay Connected Preference", p.stayConnectedPreference || p.connectionPreference),
         row("Personal Note (anonymous intro)", p.personalNote),
       ]);
     } else if (type === "artist") {
