@@ -310,6 +310,32 @@
       text-align: center; padding: 60px;
       color: #9ca3af; font-size: 14px;
     }
+
+    /* ── Matches ── */
+    .find-matches-btn {
+      background: #2d6a4f; color: #fff; border: none; border-radius: 8px;
+      padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+      margin-top: 6px; align-self: flex-start;
+    }
+    .find-matches-btn:hover { background: #1b4332; }
+    .find-matches-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .matches-list { display: flex; flex-direction: column; gap: 8px; }
+    .match-card {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px; border-radius: 10px;
+      background: #f9fafb; cursor: pointer;
+      transition: background 0.15s;
+      border: 1px solid #f3f4f6;
+    }
+    .match-card:hover { background: #f0fdf4; border-color: #bbf7d0; }
+    .match-score {
+      font-size: 13px; font-weight: 700; color: #2d6a4f;
+      min-width: 40px; text-align: center; flex-shrink: 0;
+    }
+    .match-info { flex: 1; min-width: 0; }
+    .match-name { margin-bottom: 3px; }
+    .match-summary { font-size: 12px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .match-location { font-size: 11px; color: #9ca3af; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -341,7 +367,7 @@
   <div class="filters" id="filters"></div>
 
   <div class="search-bar">
-    <input type="search" id="searchInput" placeholder="Search by city, discipline, niche, cause…" oninput="render()" />
+    <input type="search" id="searchInput" placeholder="Search by name, city, discipline, niche, cause…" oninput="render()" />
   </div>
 
   <div class="table-wrap">
@@ -350,6 +376,7 @@
       <thead>
         <tr>
           <th>Type</th>
+          <th>Name</th>
           <th>Key Info</th>
           <th>Location</th>
           <th>Source</th>
@@ -369,15 +396,18 @@
       <div class="modal-header-left">
         <h2 id="modalTitle">Member Profile</h2>
         <div class="modal-id" id="modalId"></div>
+        <button class="find-matches-btn" id="findMatchesBtn" onclick="findMatches()">Find Matches</button>
       </div>
       <button class="modal-close" onclick="closeModalDirect()">×</button>
     </div>
     <div class="modal-body" id="modalBody"></div>
+    <div id="matchesPanel" style="padding: 0 24px 24px;"></div>
   </div>
 </div>
 
 <script>
   let allMembers = [];
+  let currentModalId = null;
   let activeFilter = "all";
 
   // ── Auth ──
@@ -529,8 +559,10 @@
       const lastActive = m.lastActiveAt ? timeAgo(m.lastActiveAt._seconds * 1000) : "—";
       const id = m.id;
 
+      const name = p.name || "—";
       return `<tr onclick="openModal('${escapeId(id)}')">
         <td><span class="badge badge-${type}">${type}</span></td>
+        <td class="key-info">${name}</td>
         <td class="key-info">${keyInfo}</td>
         <td>${location}</td>
         <td><span class="source-tag">${source}</span></td>
@@ -567,12 +599,18 @@
     if (!m) return;
     const p = m.profile || {};
     const type = getMemberType(m);
+    currentModalId = id;
 
+    const displayName = p.name || (getMemberSource(m) === "sms" ? "SMS member" : "Web member");
     document.getElementById("modalTitle").innerHTML =
-      `<span class="badge badge-${type}">${type}</span> <span style="color:#6b7280;font-weight:400">${getMemberSource(m) === "sms" ? "SMS member" : "Web member"}</span>`;
+      `<span class="badge badge-${type}">${type}</span> <span style="color:#6b7280;font-weight:400">${displayName}</span>`;
     document.getElementById("modalId").innerHTML =
       `${m.id} <button class="copy-btn" onclick="copyId('${escapeId(m.id)}')">copy</button>`;
     document.getElementById("modalBody").innerHTML = buildProfileHtml(type, p, m);
+    document.getElementById("matchesPanel").innerHTML = "";
+    const btn = document.getElementById("findMatchesBtn");
+    btn.disabled = false;
+    btn.textContent = "Find Matches";
     document.getElementById("modalOverlay").classList.add("open");
   }
 
@@ -582,7 +620,7 @@
 
   // All known profile keys — used to detect extras
   const KNOWN_PROFILE_KEYS = new Set([
-    "memberType","businessLink","businessDescription","approvedBlurb","shareTypes",
+    "name","memberType","businessLink","businessDescription","approvedBlurb","shareTypes",
     "openToBusinessCollabs","eventPlatforms","interests","neighborhood","location",
     "personalNote","stayConnectedPreference","connectionPreference","discipline",
     "venueTypes","portfolioLink","city","travelRadius","openToArtistCollabs",
@@ -623,6 +661,7 @@
 
     // ── Account ──
     html += section("Account", [
+      row("Name", p.name),
       row("Member ID", m.id),
       row("Source", m.source),
       row("Member Type", p.memberType),
@@ -693,6 +732,55 @@
     </details></div>`;
 
     return html;
+  }
+
+  async function findMatches() {
+    if (!currentModalId) return;
+    const btn = document.getElementById("findMatchesBtn");
+    const panel = document.getElementById("matchesPanel");
+    btn.disabled = true;
+    btn.textContent = "Finding…";
+    panel.innerHTML = `<p style="padding:8px 0;color:#9ca3af;font-size:13px">Loading matches…</p>`;
+
+    try {
+      const token = sessionStorage.getItem("admin_token");
+      const res = await fetch(
+        `/.netlify/functions/matches?memberId=${encodeURIComponent(currentModalId)}&topK=5`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await res.json();
+
+      if (!data.matches?.length) {
+        panel.innerHTML = `<p style="padding:8px 0;color:#9ca3af;font-size:13px">No matches yet — member profile may still be building up.</p>`;
+        return;
+      }
+
+      const cards = data.matches.map(m => {
+        const type = getMemberType(m);
+        const p = m.profile || {};
+        const score = Math.round((m.similarityScore || 0) * 100);
+        const summary = p.approvedBlurb || (p.interests?.join(", ")) || p.discipline || p.cause || p.niche || "—";
+        const location = p.neighborhood || p.city || p.location || "";
+        return `<div class="match-card" onclick="closeModalDirect(); openModal('${escapeId(m.id)}')">
+          <div class="match-score">${score}%</div>
+          <div class="match-info">
+            <div class="match-name"><span class="badge badge-${type}">${type}</span></div>
+            <div class="match-summary">${summary}</div>
+            ${location ? `<div class="match-location">${location}</div>` : ""}
+          </div>
+        </div>`;
+      }).join("");
+
+      panel.innerHTML = `<div class="profile-section" style="border-top:1px solid #f3f4f6;padding-top:16px;">
+        <div class="section-title">Top Matches</div>
+        <div class="matches-list">${cards}</div>
+      </div>`;
+    } catch {
+      panel.innerHTML = `<p style="padding:8px 0;color:#dc2626;font-size:13px">Failed to load matches.</p>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Find Matches";
+    }
   }
 
   function closeModal(e) {

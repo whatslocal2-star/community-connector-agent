@@ -1,7 +1,7 @@
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-function getDb() {
+export function getDb() {
   if (!getApps().length) {
     initializeApp({
       credential: cert({
@@ -12,6 +12,14 @@ function getDb() {
     });
   }
   return getFirestore();
+}
+
+export async function loadMember(id) {
+  const db = getDb();
+  const doc = await db.collection("members").doc(id).get();
+  if (!doc.exists) return null;
+  const { history, ...rest } = doc.data();
+  return { id: doc.id, ...rest };
 }
 
 export async function loadConversation(id) {

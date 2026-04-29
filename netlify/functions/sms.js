@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
-import { loadConversation, saveMember } from "./lib/db.js";
+import { loadConversation, loadMember, saveMember } from "./lib/db.js";
+import { upsertMemberVector } from "./lib/vectorSearch.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -78,6 +79,15 @@ export const handler = async (event) => {
       profileUpdate,
       meta: { phone: fromNumber, source: "sms" },
     });
+
+    if (profileUpdate) {
+      try {
+        const member = await loadMember(fromNumber);
+        if (member?.profile) await upsertMemberVector(fromNumber, member.profile);
+      } catch (err) {
+        console.error("Embed error:", err);
+      }
+    }
 
     await sendSms(fromNumber, replyFrom, replyText);
   } catch (err) {
