@@ -1,10 +1,11 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
-import { saveMember, loadMember } from "./lib/db.js";
+import { saveMember, loadMember, saveSubscriptions } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 import { enrichProfile, hasEnrichableData } from "./lib/enrich.js";
+import { buildSubscriptionsFromProfile, hasNewSubscriptionData } from "./lib/subscriptions.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -52,6 +53,15 @@ export const handler = async (event) => {
         const member = await loadMember(sessionId);
         if (member?.profile) {
           await upsertMemberVector(sessionId, member.profile);
+
+          if (hasNewSubscriptionData(profileUpdate)) {
+            const subs = buildSubscriptionsFromProfile(member.profile);
+            if (subs.length) {
+              saveSubscriptions(sessionId, subs).catch(err =>
+                console.error("Subscription save error:", err)
+              );
+            }
+          }
 
           if (hasEnrichableData(profileUpdate) && !member.profile.enrichedAt) {
             enrichProfile(member.profile).then(async (enriched) => {

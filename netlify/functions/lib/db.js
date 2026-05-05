@@ -41,6 +41,50 @@ export async function loadAllMembers(limit = 500) {
   });
 }
 
+export async function saveSubscriptions(memberId, channels) {
+  const db = getDb();
+  const batch = db.batch();
+  for (const ch of channels) {
+    const ref = db.collection("members").doc(memberId)
+      .collection("subscriptions").doc(ch.type);
+    batch.set(ref, {
+      ...ch,
+      active: true,
+      createdAt: FieldValue.serverTimestamp(),
+      lastCheckedAt: null,
+    }, { merge: true });
+  }
+  await batch.commit();
+}
+
+export async function loadSubscriptions(memberId) {
+  const db = getDb();
+  const snap = await db.collection("members").doc(memberId)
+    .collection("subscriptions").where("active", "==", true).get();
+  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+export async function loadAllActiveSubscriptions() {
+  const db = getDb();
+  const membersSnap = await db.collection("members")
+    .where("profile.eventPostingPlatforms", "!=", null)
+    .get();
+
+  const results = [];
+  for (const memberDoc of membersSnap.docs) {
+    const subsSnap = await memberDoc.ref.collection("subscriptions")
+      .where("active", "==", true).get();
+    if (subsSnap.empty) continue;
+    const member = memberDoc.data();
+    results.push({
+      memberId: memberDoc.id,
+      name: member.profile?.name,
+      subscriptions: subsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+    });
+  }
+  return results;
+}
+
 export async function saveMember(id, { history, profileUpdate, meta = {} }) {
   const db = getDb();
   const ref = db.collection("members").doc(id);

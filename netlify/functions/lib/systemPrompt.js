@@ -17,6 +17,7 @@ PROFILE SCHEMA RULES — follow these exactly to keep data clean:
    - Food/drink preferences → "interests" (add to it)
    - Dietary restrictions or avoids → "dietaryRestrictions" (array, e.g. ["no salmon", "vegetarian"])
    - Things they want to avoid or dislike → "dislikes" (array)
+   - Where they post events → "eventPostingPlatforms" (array of lowercase platform names, e.g. ["instagram", "eventbrite", "website"])
    - Personality/vibe → "vibe" (short string)
    - Goals → "goals" (array)
    - Pain points → "painPoints" (array)
