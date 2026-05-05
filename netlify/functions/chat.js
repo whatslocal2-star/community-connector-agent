@@ -3,6 +3,7 @@ import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
 import { saveMember, loadMember } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
+import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -43,11 +44,20 @@ export const handler = async (event) => {
 
     const { reply, profileUpdate } = parseCompletion(completion);
 
-    if (sessionId && profileUpdate) {
+    if (sessionId) {
       try {
-        await saveMember(sessionId, { profileUpdate, meta: { source: "web" } });
+        const updatedHistory = [...messages, { role: "assistant", content: reply }];
+        await saveMember(sessionId, { history: updatedHistory, profileUpdate, meta: { source: "web" } });
         const member = await loadMember(sessionId);
-        if (member?.profile) await upsertMemberVector(sessionId, member.profile);
+        if (member?.profile) {
+          await upsertMemberVector(sessionId, member.profile);
+          if (isReadyToSync(member.profile)) {
+            const result = await syncToProlocaliq(sessionId, member.profile);
+            if (result?.status === "created" || result?.status === "already_exists") {
+              await saveMember(sessionId, { profileUpdate: { prolocaliqSynced: true, prolocaliqAccountId: result.businessAccountId ?? null } });
+            }
+          }
+        }
       } catch (err) {
         console.error("Save/embed error:", err);
       }

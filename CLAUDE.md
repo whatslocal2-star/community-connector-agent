@@ -53,7 +53,12 @@ lastActiveAt, source ("web" | "sms"), phone (SMS only)
 ## Environment Variables (Netlify)
 `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID` (`whatlocal-ab06e`), `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\\n`), `ADMIN_TOKEN`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` (default: `community-members`)
 
+**ProLocalIQ sync (set on Netlify):**
+- `PROLOCALIQ_URL` — base URL of the prolocaliq Express server (e.g. `https://prolocaliq.com`)
+- `CC_SYNC_TOKEN` — shared secret; must also be set on prolocaliq as `CC_SYNC_TOKEN`
+
 ## Recent Decisions
 - Enforce flat Firestore schema with merge behavior (no nested profile objects)
 - Agent must confirm platform handles/URLs with user before saving; skip confirmation if already provided
 - Admin dashboard shows location field with fallback for older records
+- ProLocalIQ sync: after each save, if `name + email + memberType` all present and `prolocaliqSynced` is false, POST to `PROLOCALIQ_URL/api/integrations/community-connector/sync`. vendor/artist/organizer → creates business + businessAccount in prolocaliq. shopper/influencer → returns invite_pending (requires Google OAuth on prolocaliq side). Sets `prolocaliqSynced: true` + `prolocaliqAccountId` in Firestore on success.

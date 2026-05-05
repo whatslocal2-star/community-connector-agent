@@ -3,6 +3,7 @@ import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
 import { loadConversation, loadMember, saveMember } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
+import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -83,7 +84,15 @@ export const handler = async (event) => {
     if (profileUpdate) {
       try {
         const member = await loadMember(fromNumber);
-        if (member?.profile) await upsertMemberVector(fromNumber, member.profile);
+        if (member?.profile) {
+          await upsertMemberVector(fromNumber, member.profile);
+          if (isReadyToSync(member.profile)) {
+            const result = await syncToProlocaliq(fromNumber, member.profile);
+            if (result?.status === "created" || result?.status === "already_exists") {
+              await saveMember(fromNumber, { profileUpdate: { prolocaliqSynced: true, prolocaliqAccountId: result.businessAccountId ?? null } });
+            }
+          }
+        }
       } catch (err) {
         console.error("Embed error:", err);
       }
