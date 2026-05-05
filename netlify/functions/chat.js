@@ -4,6 +4,7 @@ import { parseCompletion } from "./lib/profileTool.js";
 import { saveMember, loadMember } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
+import { enrichProfile, hasEnrichableData } from "./lib/enrich.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -51,6 +52,20 @@ export const handler = async (event) => {
         const member = await loadMember(sessionId);
         if (member?.profile) {
           await upsertMemberVector(sessionId, member.profile);
+
+          if (hasEnrichableData(profileUpdate) && !member.profile.enrichedAt) {
+            enrichProfile(member.profile).then(async (enriched) => {
+              if (!enriched) return;
+              const safeFields = {};
+              for (const [k, v] of Object.entries(enriched)) {
+                if (v != null && !member.profile[k]) safeFields[k] = v;
+              }
+              if (Object.keys(safeFields).length) {
+                await saveMember(sessionId, { profileUpdate: { ...safeFields, enrichedAt: new Date().toISOString() } });
+              }
+            }).catch(err => console.error("Background enrich error:", err));
+          }
+
           if (isReadyToSync(member.profile)) {
             const result = await syncToProlocaliq(sessionId, member.profile);
             if (result?.status === "created" || result?.status === "already_exists") {
