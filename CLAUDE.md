@@ -25,6 +25,12 @@ AI-driven community onboarding agent that profiles local members (vendors, shopp
 | `netlify/functions/matches.js` | Pinecone similarity query (bearer token) |
 | `netlify/functions/enrich.js` | Profile enrichment endpoint (bearer token) — scrapes web + Google Places |
 | `netlify/functions/lib/enrich.js` | Enrichment logic: Jina Reader scraping, Google Places API, GPT extraction |
+| `netlify/functions/lib/subscriptions.js` | Builds subscription records from profile data |
+| `netlify/functions/lib/events.js` | Event suggestion CRUD for Firestore |
+| `netlify/functions/subscriptions.js` | Admin endpoint: list active subscriptions (bearer token) |
+| `netlify/functions/event-suggestions.js` | Admin endpoint: list/approve/reject event suggestions (bearer token) |
+| `trigger/harvest-events.ts` | Trigger.dev cron job — daily scrape of subscribed channels for events |
+| `trigger.config.ts` | Trigger.dev project config |
 | `netlify/functions/lib/systemPrompt.js` | Shared onboarding prompt (flow + schema rules) |
 | `netlify/functions/lib/db.js` | Firestore lazy init + CRUD |
 | `netlify/functions/lib/vectorSearch.js` | OpenAI embedding + Pinecone upsert/query |
@@ -68,3 +74,4 @@ lastActiveAt, source ("web" | "sms"), phone (SMS only)
 - Admin dashboard shows location field with fallback for older records
 - ProLocalIQ sync: after each save, if `name + email + memberType` all present and `prolocaliqSynced` is false, POST to `PROLOCALIQ_URL/api/integrations/community-connector/sync`. vendor/artist/organizer → creates business + businessAccount in prolocaliq. shopper/influencer → returns invite_pending (requires Google OAuth on prolocaliq side). Sets `prolocaliqSynced: true` + `prolocaliqAccountId` in Firestore on success.
 - Profile enrichment: when a URL is captured during onboarding (websiteUrl, googleMapsUrl, etc.), background enrichment scrapes the site via Jina Reader + Google Places API, extracts structured fields via GPT, and merges them into the profile (only fills empty fields, never overwrites user-provided data). Also available as manual endpoint `POST /functions/enrich` (bearer token).
+- Event subscriptions: agent captures `eventPostingPlatforms` array during onboarding, which creates subscription records in `members/{id}/subscriptions/{platform}` subcollection. Trigger.dev cron job (`harvest-events`) runs daily at 8am, scrapes all subscribed channels via Jina Reader, uses GPT to detect events and reword them, saves to `eventSuggestions` collection with status "pending". Admin reviews via `GET/PUT /functions/event-suggestions`.

@@ -5,7 +5,9 @@
   "dependencies": {
     "@netlify/blobs": "^8.1.0",
     "@pinecone-database/pinecone": "^4.0.0",
+    "@trigger.dev/sdk": "^3.0.0",
     "firebase-admin": "^13.8.0",
-    "openai": "^4.78.0"
+    "openai": "^4.78.0",
+    "typescript": "^5.5.0"
   }
 }
