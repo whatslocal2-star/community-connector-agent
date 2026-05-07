@@ -6,6 +6,7 @@ import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 import { enrichProfile, hasEnrichableData } from "./lib/enrich.js";
 import { buildSubscriptionsFromProfile, hasNewSubscriptionData } from "./lib/subscriptions.js";
+import { parseGoogleMapsUrl } from "./lib/parseLocation.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -61,6 +62,14 @@ export const handler = async (event) => {
                 console.error("Subscription save error:", err)
               );
             }
+          }
+
+          if (profileUpdate?.googleMapsUrl && !member.profile.latitude) {
+            parseGoogleMapsUrl(profileUpdate.googleMapsUrl).then(async (coords) => {
+              if (coords) {
+                await saveMember(sessionId, { profileUpdate: coords });
+              }
+            }).catch(err => console.error("Location parse error:", err));
           }
 
           if (hasEnrichableData(profileUpdate) && !member.profile.enrichedAt) {

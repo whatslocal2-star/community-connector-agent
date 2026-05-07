@@ -143,7 +143,7 @@ export function hasEnrichableData(profileUpdate) {
   if (!profileUpdate) return false;
   const enrichKeys = [
     "websiteUrl", "googleMapsUrl", "shopifyUrl", "businessUrl",
-    "eventbriteUrl", "facebookUrl",
+    "eventbriteUrl", "facebookUrl", "googleMapsUrl",
   ];
   return enrichKeys.some(k => profileUpdate[k]);
 }
