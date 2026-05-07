@@ -42,6 +42,8 @@ This project serves as the **signup + data layer** for the Community Marketplace
 | `netlify/functions/marketplace-members.js` | Public member list API — filterable by type/city, strips phone |
 | `netlify/functions/marketplace-member.js` | Public single member profile by ID |
 | `netlify/functions/marketplace-events.js` | Public approved events feed for marketplace |
+| `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
+| `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
 | `netlify/functions/lib/systemPrompt.js` | Shared onboarding prompt (flow + schema rules) |
 | `netlify/functions/lib/db.js` | Firestore lazy init + member/subscription CRUD |
 | `netlify/functions/lib/vectorSearch.js` | OpenAI embedding + Pinecone upsert/query |
@@ -99,6 +101,7 @@ createdAt, updatedAt
 - **Vector metadata** stores only `memberType` + `onboardingComplete`; full profile goes into embedding text.
 - **Admin auth:** Bearer token (`ADMIN_TOKEN`) checked on `/admin`, `/matches`, `/enrich`, `/subscriptions`, and `/event-suggestions` endpoints.
 - **Marketplace endpoints are public** — `marketplace-members`, `marketplace-member`, `marketplace-events` require no auth. `phone` field stripped before returning.
+- **Location capture:** vendors/organizers asked for Google Maps link → saved as `googleMapsUrl` → `parseLocation.js` extracts `latitude`/`longitude` in background post-save. Supports all URL formats + `maps.app.goo.gl` short links. Run `backfill-locations` (admin) to parse existing records missing coords.
 
 ## Environment Variables (Netlify)
 `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID` (`whatlocal-ab06e`), `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\\n`), `ADMIN_TOKEN`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` (default: `community-members`)
@@ -123,3 +126,5 @@ createdAt, updatedAt
 - Event subscriptions: `eventPostingPlatforms` captured during onboarding → subscription subcollection records
 - Trigger.dev daily harvest at 8am: scrape subscribed channels → GPT event detection → reworded suggestions saved as "pending" for admin review before reposting
 - Marketplace launched: public Next.js app at `/Users/xen/Desktop/dev/community-marketplace` reads from 3 new public Netlify functions; all profiles live (no opt-in flag)
+- Marketplace map view: grid/map toggle on browse page; colored dots by member type (Leaflet + OpenStreetMap); locate-me button with blinking user dot
+- Member profile pages show mini map + "Open in Google Maps" link when coords present; `eventSuggestions` queries filter in-memory (no composite index required)
