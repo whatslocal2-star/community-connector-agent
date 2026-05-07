@@ -14,15 +14,16 @@ export async function saveEventSuggestion(suggestion) {
 
 export async function loadEventSuggestions({ status, memberId, limit = 50 } = {}) {
   const db = getDb();
-  let query = db.collection("eventSuggestions")
+  // Fetch a broad set then filter in-memory to avoid composite index requirements
+  const snap = await db.collection("eventSuggestions")
     .orderBy("createdAt", "desc")
-    .limit(limit);
+    .limit(500)
+    .get();
 
-  if (status) query = query.where("status", "==", status);
-  if (memberId) query = query.where("memberId", "==", memberId);
-
-  const snap = await query.get();
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  let results = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  if (status) results = results.filter(e => e.status === status);
+  if (memberId) results = results.filter(e => e.memberId === memberId);
+  return results.slice(0, limit);
 }
 
 export async function updateEventSuggestionStatus(id, status) {
