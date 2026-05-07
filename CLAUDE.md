@@ -3,6 +3,8 @@
 ## What This Is
 AI-driven community onboarding agent that profiles local members (vendors, shoppers, artists, organizers, influencers) via web chat or SMS, stores profiles in Firestore, enriches them from external sources, enables vector similarity matching via Pinecone, and harvests events from subscribed channels. Hosted on Netlify with Trigger.dev for scheduled jobs.
 
+This project serves as the **signup + data layer** for the Community Marketplace (`/Users/xen/Desktop/dev/community-marketplace`) — a public Next.js app that lets anyone browse and discover onboarded profiles and community events.
+
 ## Architecture
 
 **Request flow (per chat turn):**
@@ -37,6 +39,9 @@ AI-driven community onboarding agent that profiles local members (vendors, shopp
 | `netlify/functions/enrich.js` | Manual profile enrichment endpoint (bearer token) |
 | `netlify/functions/subscriptions.js` | List active subscriptions (bearer token) |
 | `netlify/functions/event-suggestions.js` | List/approve/reject event suggestions (bearer token) |
+| `netlify/functions/marketplace-members.js` | Public member list API — filterable by type/city, strips phone |
+| `netlify/functions/marketplace-member.js` | Public single member profile by ID |
+| `netlify/functions/marketplace-events.js` | Public approved events feed for marketplace |
 | `netlify/functions/lib/systemPrompt.js` | Shared onboarding prompt (flow + schema rules) |
 | `netlify/functions/lib/db.js` | Firestore lazy init + member/subscription CRUD |
 | `netlify/functions/lib/vectorSearch.js` | OpenAI embedding + Pinecone upsert/query |
@@ -93,6 +98,7 @@ createdAt, updatedAt
 - **Anonymous discovery** is a feature but not advertised — only explain if user explicitly asks.
 - **Vector metadata** stores only `memberType` + `onboardingComplete`; full profile goes into embedding text.
 - **Admin auth:** Bearer token (`ADMIN_TOKEN`) checked on `/admin`, `/matches`, `/enrich`, `/subscriptions`, and `/event-suggestions` endpoints.
+- **Marketplace endpoints are public** — `marketplace-members`, `marketplace-member`, `marketplace-events` require no auth. `phone` field stripped before returning.
 
 ## Environment Variables (Netlify)
 `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID` (`whatlocal-ab06e`), `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\\n`), `ADMIN_TOKEN`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` (default: `community-members`)
@@ -116,3 +122,4 @@ createdAt, updatedAt
 - Profile enrichment scrapes via Jina Reader (free, no key) + Google Places API; only fills empty fields
 - Event subscriptions: `eventPostingPlatforms` captured during onboarding → subscription subcollection records
 - Trigger.dev daily harvest at 8am: scrape subscribed channels → GPT event detection → reworded suggestions saved as "pending" for admin review before reposting
+- Marketplace launched: public Next.js app at `/Users/xen/Desktop/dev/community-marketplace` reads from 3 new public Netlify functions; all profiles live (no opt-in flag)
