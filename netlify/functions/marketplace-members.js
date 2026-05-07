@@ -22,7 +22,7 @@ export const handler = async (event) => {
   }
 
   try {
-    const { type, city, limit, cursor } = event.queryStringParameters || {};
+    const { type, city, category, subcategory, limit, cursor } = event.queryStringParameters || {};
     const max = Math.min(parseInt(limit, 10) || 50, 200);
 
     // Pull a generous batch then filter in-memory; loadAllMembers already strips history
@@ -34,6 +34,12 @@ export const handler = async (event) => {
     if (city) {
       const c = city.toLowerCase();
       members = members.filter(m => (m.profile?.city || "").toLowerCase().includes(c));
+    }
+    if (category) {
+      members = members.filter(m => (m.profile?.category || "").toLowerCase() === category.toLowerCase());
+    }
+    if (subcategory) {
+      members = members.filter(m => (m.profile?.subcategory || "").toLowerCase() === subcategory.toLowerCase());
     }
     if (cursor) {
       // cursor is a millisecond timestamp; return only items older than cursor
