@@ -43,7 +43,9 @@ This project serves as the **signup + data layer** for the Community Marketplace
 | `netlify/functions/marketplace-member.js` | Public single member profile by ID |
 | `netlify/functions/marketplace-events.js` | Public approved events feed for marketplace |
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
+| `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` to set arbitrary profile fields on any member |
 | `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
+| `netlify/functions/lib/taxonomy.js` | Canonical category/subcategory taxonomy + `TAXONOMY_PROMPT` for system prompt |
 | `netlify/functions/lib/systemPrompt.js` | Shared onboarding prompt (flow + schema rules) |
 | `netlify/functions/lib/db.js` | Firestore lazy init + member/subscription CRUD |
 | `netlify/functions/lib/vectorSearch.js` | OpenAI embedding + Pinecone upsert/query |
@@ -128,3 +130,5 @@ createdAt, updatedAt
 - Marketplace launched: public Next.js app at `/Users/xen/Desktop/dev/community-marketplace` reads from 3 new public Netlify functions; all profiles live (no opt-in flag)
 - Marketplace map view: grid/map toggle on browse page; colored dots by member type (Leaflet + OpenStreetMap); locate-me button with blinking user dot
 - Member profile pages show mini map + "Open in Google Maps" link when coords present; `eventSuggestions` queries filter in-memory (no composite index required)
+- Category/subcategory taxonomy: GPT auto-assigns from canonical taxonomy during onboarding; marketplace has 3-row filter (type → category → subcategory pills); shown on cards and profile headers
+- `patch-member` admin endpoint: POST `{id, fields}` to manually set any profile fields (used for backfills)
