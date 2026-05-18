@@ -18,7 +18,11 @@ function getIndex() {
   return getPinecone().index(process.env.PINECONE_INDEX_NAME || "community-members");
 }
 
-const STR_FILTER_KEYS = ["city", "neighborhood", "category", "subcategory", "discipline", "niche"];
+// Hard filter keys — go into Pinecone metadata. Reliable / well-populated on imports.
+const STR_HARD_KEYS = ["category", "subcategory", "discipline", "niche"];
+// Soft filter keys — applied in-memory; missing on profile = pass-through ("no opinion").
+const STR_SOFT_KEYS = ["city", "neighborhood"];
+const STR_FILTER_KEYS = [...STR_HARD_KEYS, ...STR_SOFT_KEYS];
 const BOOL_FILTER_KEYS = [
   "acceptsEBT", "acceptsCash", "acceptsCrypto",
   "wheelchairAccessible", "freeParking",
@@ -30,14 +34,28 @@ const ARRAY_FILTER_KEYS = ["amenities", "atmosphere", "favoriteTeams"];
 
 function lc(v) { return typeof v === "string" ? v.toLowerCase() : v; }
 
+// Common city aliases — normalize before substring match.
+const CITY_ALIASES = {
+  "sf": "san francisco",
+  "s.f.": "san francisco",
+  "the city": "san francisco",
+  "oak": "oakland",
+  "the town": "oakland",
+  "nyc": "new york",
+  "la": "los angeles",
+};
+function expandCity(v) { return CITY_ALIASES[lc(v)] || v; }
+
 // Build a Pinecone metadata filter from intent.filters / intent.excludes.
 // Anything not expressible here falls through to in-memory matching.
 export function buildPineconeFilter(filters = {}, excludes = {}) {
   const f = {};
   if (filters.memberType) f.memberType = filters.memberType;
-  for (const k of STR_FILTER_KEYS) {
+  for (const k of STR_HARD_KEYS) {
     if (filters[k]) f[k] = lc(filters[k]);
   }
+  // STR_SOFT_KEYS intentionally NOT pushed to Pinecone — applied in-memory so
+  // records with no city/neighborhood don't get excluded before ranking.
   for (const k of BOOL_FILTER_KEYS) {
     if (typeof filters[k] === "boolean") f[k] = filters[k];
   }
@@ -115,8 +133,17 @@ export function matchesFilters(profile, filters = {}, excludes = {}) {
       if (v) matched.push(humanize(k));
     } else if (typeof v === "string") {
       const pv = profile[k];
-      if (!pv || !String(pv).toLowerCase().includes(v.toLowerCase())) return { ok: false, matched: [] };
-      matched.push(`${humanize(k)}: ${v}`);
+      const isSoft = STR_SOFT_KEYS.includes(k);
+      if (!pv) {
+        // Soft fields with no value on profile: don't reject, don't badge.
+        // Hard fields with no value: reject as before.
+        if (!isSoft) return { ok: false, matched: [] };
+      } else if (!String(pv).toLowerCase().includes(String(k === "city" ? expandCity(v) : v).toLowerCase())) {
+        // Field is present but doesn't match the query value: always reject.
+        return { ok: false, matched: [] };
+      } else {
+        matched.push(`${humanize(k)}: ${v}`);
+      }
     }
   }
 
@@ -154,7 +181,7 @@ async function embedQuery(text) {
   return res.data[0].embedding;
 }
 
-export async function searchMembers({ query, filters = {}, excludes = {}, excludeIds = [], limit = 20, topK = 200, parseIntent = true } = {}) {
+export async function searchMembers({ query, filters = {}, excludes = {}, excludeIds = [], limit = 20, topK = 200, parseIntent = true, minScore = 0.25 } = {}) {
   if (!query && Object.keys(filters).length === 0) {
     return { intent: { semantic: "", filters, excludes, intent: "find" }, results: [] };
   }
@@ -183,7 +210,7 @@ export async function searchMembers({ query, filters = {}, excludes = {}, exclud
       includeMetadata: true,
       ...(Object.keys(pineconeFilter).length ? { filter: pineconeFilter } : {}),
     });
-    pineconeMatches = result.matches || [];
+    pineconeMatches = (result.matches || []).filter(m => (m.score ?? 0) >= minScore);
   }
 
   const db = getDb();

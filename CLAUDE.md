@@ -201,3 +201,26 @@ createdAt, updatedAt
 
 ## Production TODO
 - After next deploy, run `/backfill-structured?reembedAll=1` once to migrate existing members and refresh their Pinecone metadata with the expanded schema. Idempotent; subsequent runs can omit `?reembedAll=1`.
+
+### Observability (PR #1 — `feat/observability-stack`)
+- [ ] Set `SENTRY_DSN` in Netlify env vars (Site → Environment variables)
+- [ ] Set `POSTHOG_API_KEY` (+ optional `POSTHOG_HOST`) in Netlify env vars
+- [ ] Set the same two vars in Trigger.dev dashboard (project `xeno`) so the 3 crons emit too
+- [ ] After deploy: complete one web onboarding + one SMS onboarding; confirm `profile_completed` + `first_recs_sent` appear in PostHog with correct `channel`
+- [ ] After deploy: trigger one cron manually from Trigger.dev dashboard; confirm `event_harvest_run` / `oakland_harvest_run` / `followup_run` events land in PostHog
+- [ ] In PostHog: build the funnel `profile_completed → first_recs_sent → outcome_received`, broken down by `channel` and `memberType` — that's the core self-improving-loop dashboard
+
+### Marketplace observability (separate repo: `/Users/xen/Desktop/dev/community-marketplace`)
+- [ ] Add PostHog **browser** SDK to the Next.js app → visitor analytics, geo, referrer, page views, session replay
+- [ ] Use the same PostHog project as this app + stable `distinctId = memberId` so visitor → onboarding → outcome stitches into one funnel
+- [ ] Optionally add Sentry browser SDK for client-side error tracking
+
+### Uptime / synthetic checks
+- [ ] Dashboard-only config (no code) — UptimeRobot or Checkly on:
+  - `/.netlify/functions/chat` (POST with minimal payload)
+  - `/.netlify/functions/search?q=test`
+  - `/.netlify/functions/marketplace-members`
+- [ ] Wire alerts to Slack/email
+
+### Log aggregation (defer until pain)
+- [ ] Skip unless Netlify function logs become painful to grep. Then: Axiom log drain (cheapest, generous free tier) or Better Stack.

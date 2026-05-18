@@ -232,10 +232,14 @@ test("buildPineconeFilter: boolean passes through", () => {
   assert.equal(f.sportsBar, true);
   assert.equal(f.openLate, true);
 });
-test("buildPineconeFilter: city lowercased", () => {
-  const f = buildPineconeFilter({ city: "Oakland", neighborhood: "Chinatown" });
-  assert.equal(f.city, "oakland");
-  assert.equal(f.neighborhood, "chinatown");
+test("buildPineconeFilter: city/neighborhood are SOFT filters (not pushed to Pinecone)", () => {
+  // Soft filters apply in-memory so records without those fields populated
+  // aren't excluded before semantic ranking. Hard filters (category, etc.)
+  // still go to Pinecone metadata for server-side filtering.
+  const f = buildPineconeFilter({ city: "Oakland", neighborhood: "Chinatown", category: "Retail" });
+  assert.equal(f.city, undefined, "city should NOT be in Pinecone filter");
+  assert.equal(f.neighborhood, undefined, "neighborhood should NOT be in Pinecone filter");
+  assert.equal(f.category, "retail", "category SHOULD be in Pinecone filter, lowercased");
 });
 test("buildPineconeFilter: excludes amenities → $nin", () => {
   const f = buildPineconeFilter({}, { amenities: ["loud"] });
