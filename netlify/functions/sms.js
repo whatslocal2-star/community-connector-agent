@@ -4,6 +4,8 @@ import { parseCompletion } from "./lib/profileTool.js";
 import { loadConversation, loadMember, saveMember } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
+import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
+import { extractOutcome } from "./lib/extractOutcome.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -57,6 +59,29 @@ export const handler = async (event) => {
   const replyFrom = toNumber || process.env.TELNYX_FROM_NUMBER;
 
   try {
+    const awaiting = await loadAwaitingOutcome(fromNumber);
+    if (awaiting) {
+      const outcome = await extractOutcome(incomingText, { reason: awaiting.reason });
+      await recordOutcome(awaiting.id, { raw: incomingText, outcome });
+
+      const implicit = outcome?.implicit_profile_updates;
+      if (implicit && Object.keys(implicit).length) {
+        await saveMember(fromNumber, { profileUpdate: implicit });
+        try {
+          const member = await loadMember(fromNumber);
+          if (member?.profile) await upsertMemberVector(fromNumber, member.profile);
+        } catch (err) { console.error("Embed after outcome error:", err); }
+      }
+
+      const ack = "Thanks for letting us know — that really helps us find better connections for you.";
+      const history = await loadConversation(fromNumber);
+      history.push({ role: "user", content: incomingText });
+      history.push({ role: "assistant", content: ack });
+      await saveMember(fromNumber, { history, meta: { phone: fromNumber, source: "sms" } });
+      await sendSms(fromNumber, replyFrom, ack);
+      return { statusCode: 200, body: "OK" };
+    }
+
     let history = await loadConversation(fromNumber);
     history.push({ role: "user", content: incomingText });
     if (history.length > MAX_HISTORY) {

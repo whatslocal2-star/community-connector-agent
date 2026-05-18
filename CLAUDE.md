@@ -44,6 +44,9 @@ This project serves as the **signup + data layer** for the Community Marketplace
 | `netlify/functions/marketplace-events.js` | Public approved events feed for marketplace |
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
 | `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` to set arbitrary profile fields on any member |
+| `netlify/functions/match-log.js` | Admin: GET/POST `matchLogs` — record intros/recommendations made to a member |
+| `netlify/functions/lib/matchLog.js` | Firestore CRUD for `matchLogs` collection |
+| `netlify/functions/lib/extractOutcome.js` | GPT outcome extractor — turns NL feedback into structured signal |
 | `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
 | `netlify/functions/lib/taxonomy.js` | Canonical category/subcategory taxonomy + `TAXONOMY_PROMPT` for system prompt |
 | `netlify/functions/lib/systemPrompt.js` | Shared onboarding prompt (flow + schema rules) |
@@ -56,6 +59,7 @@ This project serves as the **signup + data layer** for the Community Marketplace
 | `netlify/functions/lib/syncToProlocaliq.js` | ProLocalIQ account sync |
 | `trigger.config.ts` | Trigger.dev project config |
 | `trigger/harvest-events.ts` | Daily cron job — scrape subscribed channels, detect + reword events |
+| `trigger/followup-intros.ts` | Hourly cron — send 48h follow-up on pending matchLogs, route reply through `extractOutcome` |
 
 **Firestore collections:**
 
@@ -78,6 +82,19 @@ type: "instagram" | "eventbrite" | "website" | "facebook" | ...
 handle, url
 active: true
 lastCheckedAt, createdAt
+```
+
+`matchLogs/{id}` — recorded intros/recommendations + outcome feedback
+```
+memberId, memberName
+matchedMemberId, matchedMemberName
+reason (why this match was suggested)
+channel: "sms" | "web"
+status: "pending" | "followed_up" | "completed"
+introducedAt, followUpSentAt, outcomeReceivedAt
+followUpText (what the bot said)
+outcomeRaw (raw NL reply)
+outcome: { attended, sentiment, reasons_positive[], reasons_negative[], would_repeat, implicit_profile_updates, summary }
 ```
 
 `eventSuggestions/{id}` — harvested event suggestions

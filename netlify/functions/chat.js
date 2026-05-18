@@ -7,6 +7,8 @@ import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 import { enrichProfile, hasEnrichableData } from "./lib/enrich.js";
 import { buildSubscriptionsFromProfile, hasNewSubscriptionData } from "./lib/subscriptions.js";
 import { parseGoogleMapsUrl } from "./lib/parseLocation.js";
+import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
+import { extractOutcome } from "./lib/extractOutcome.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -38,6 +40,33 @@ export const handler = async (event) => {
   }
 
   try {
+    if (sessionId) {
+      const awaiting = await loadAwaitingOutcome(sessionId);
+      const lastUserMsg = [...messages].reverse().find(m => m.role === "user")?.content;
+      if (awaiting && lastUserMsg) {
+        const outcome = await extractOutcome(lastUserMsg, { reason: awaiting.reason });
+        await recordOutcome(awaiting.id, { raw: lastUserMsg, outcome });
+
+        const implicit = outcome?.implicit_profile_updates;
+        if (implicit && Object.keys(implicit).length) {
+          await saveMember(sessionId, { profileUpdate: implicit, meta: { source: "web" } });
+          try {
+            const member = await loadMember(sessionId);
+            if (member?.profile) await upsertMemberVector(sessionId, member.profile);
+          } catch (err) { console.error("Embed after outcome error:", err); }
+        }
+
+        const ack = "Thanks for sharing that — it really helps us find better connections for you.";
+        const updatedHistory = [...messages, { role: "assistant", content: ack }];
+        await saveMember(sessionId, { history: updatedHistory, meta: { source: "web" } });
+        return {
+          statusCode: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ reply: ack }),
+        };
+      }
+    }
+
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 512,
