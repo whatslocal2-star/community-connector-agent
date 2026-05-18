@@ -6,6 +6,7 @@ import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
+import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -96,32 +97,40 @@ export const handler = async (event) => {
     });
 
     const { reply, profileUpdate } = parseCompletion(completion);
-    const replyText = reply || "Sorry, something went wrong. Please try again.";
+    let replyText = reply || "Sorry, something went wrong. Please try again.";
 
-    history.push({ role: "assistant", content: replyText });
+    await saveMember(fromNumber, { profileUpdate, meta: { phone: fromNumber, source: "sms" } });
 
-    await saveMember(fromNumber, {
-      history,
-      profileUpdate,
-      meta: { phone: fromNumber, source: "sms" },
-    });
+    try {
+      const member = await loadMember(fromNumber);
+      if (member?.profile) {
+        await upsertMemberVector(fromNumber, member.profile);
 
-    if (profileUpdate) {
-      try {
-        const member = await loadMember(fromNumber);
-        if (member?.profile) {
-          await upsertMemberVector(fromNumber, member.profile);
-          if (isReadyToSync(member.profile)) {
-            const result = await syncToProlocaliq(fromNumber, member.profile);
-            if (result?.status === "created" || result?.status === "already_exists") {
-              await saveMember(fromNumber, { profileUpdate: { prolocaliqSynced: true, prolocaliqAccountId: result.businessAccountId ?? null } });
+        if (shouldRecommend(member.profile)) {
+          try {
+            const recs = await makeFirstRecommendations(fromNumber, member.profile, { channel: "sms" });
+            if (recs?.paragraph) {
+              replyText = `${replyText}\n\n${recs.paragraph}`;
+              await saveMember(fromNumber, { profileUpdate: { firstRecsMadeAt: new Date().toISOString() } });
             }
+          } catch (err) {
+            console.error("makeFirstRecommendations error:", err);
           }
         }
-      } catch (err) {
-        console.error("Embed error:", err);
+
+        if (isReadyToSync(member.profile)) {
+          const result = await syncToProlocaliq(fromNumber, member.profile);
+          if (result?.status === "created" || result?.status === "already_exists") {
+            await saveMember(fromNumber, { profileUpdate: { prolocaliqSynced: true, prolocaliqAccountId: result.businessAccountId ?? null } });
+          }
+        }
       }
+    } catch (err) {
+      console.error("Embed/recommend error:", err);
     }
+
+    history.push({ role: "assistant", content: replyText });
+    await saveMember(fromNumber, { history, meta: { phone: fromNumber, source: "sms" } });
 
     await sendSms(fromNumber, replyFrom, replyText);
   } catch (err) {

@@ -67,7 +67,7 @@ async function embedQuery(text) {
 
 // One unified search function. Used by the public search bar and (later)
 // by the chat agent. Hard filters first, then semantic ranking.
-export async function searchMembers({ query, filters = {}, excludes = {}, limit = 20, topK = 80 } = {}) {
+export async function searchMembers({ query, filters = {}, excludes = {}, excludeIds = [], limit = 20, topK = 80 } = {}) {
   if (!query && Object.keys(filters).length === 0) {
     return { intent: { semantic: "", filters, excludes, intent: "find" }, results: [] };
   }
@@ -123,7 +123,9 @@ export async function searchMembers({ query, filters = {}, excludes = {}, limit 
     });
   }
 
+  const excludeSet = new Set(excludeIds);
   const filtered = candidates
+    .filter(m => !excludeSet.has(m.id))
     .filter(m => matchesFilters(m.profile, intent.filters, intent.excludes))
     .map(sanitize)
     .slice(0, limit);

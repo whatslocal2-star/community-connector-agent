@@ -9,6 +9,7 @@ import { buildSubscriptionsFromProfile, hasNewSubscriptionData } from "./lib/sub
 import { parseGoogleMapsUrl } from "./lib/parseLocation.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
+import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -75,14 +76,29 @@ export const handler = async (event) => {
     });
 
     const { reply, profileUpdate } = parseCompletion(completion);
+    let finalReply = reply;
 
     if (sessionId) {
       try {
-        const updatedHistory = [...messages, { role: "assistant", content: reply }];
-        await saveMember(sessionId, { history: updatedHistory, profileUpdate, meta: { source: "web" } });
+        await saveMember(sessionId, { profileUpdate, meta: { source: "web" } });
         const member = await loadMember(sessionId);
         if (member?.profile) {
           await upsertMemberVector(sessionId, member.profile);
+
+          if (shouldRecommend(member.profile)) {
+            try {
+              const recs = await makeFirstRecommendations(sessionId, member.profile, { channel: "web" });
+              if (recs?.paragraph) {
+                finalReply = `${reply}\n\n${recs.paragraph}`;
+                await saveMember(sessionId, { profileUpdate: { firstRecsMadeAt: new Date().toISOString() } });
+              }
+            } catch (err) {
+              console.error("makeFirstRecommendations error:", err);
+            }
+          }
+
+          const updatedHistory = [...messages, { role: "assistant", content: finalReply }];
+          await saveMember(sessionId, { history: updatedHistory, meta: { source: "web" } });
 
           if (hasNewSubscriptionData(profileUpdate)) {
             const subs = buildSubscriptionsFromProfile(member.profile);
@@ -129,7 +145,7 @@ export const handler = async (event) => {
     return {
       statusCode: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ reply }),
+      body: JSON.stringify({ reply: finalReply }),
     };
   } catch (err) {
     console.error("OpenAI error:", err);
