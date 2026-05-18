@@ -42,6 +42,9 @@ This project serves as the **signup + data layer** for the Community Marketplace
 | `netlify/functions/marketplace-members.js` | Public member list API — filterable by type/city, strips phone |
 | `netlify/functions/marketplace-member.js` | Public single member profile by ID |
 | `netlify/functions/marketplace-events.js` | Public approved events feed for marketplace |
+| `netlify/functions/search.js` | Public unified search — GET `?q=...` or POST `{query, filters, excludes}` — same function for search bar + chat agent |
+| `netlify/functions/lib/search.js` | Hybrid search: GPT intent parse → Pinecone semantic + in-memory hard filters |
+| `netlify/functions/lib/searchIntent.js` | GPT NL → `{semantic, filters, excludes, intent}` parser |
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
 | `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` to set arbitrary profile fields on any member |
 | `netlify/functions/match-log.js` | Admin: GET/POST `matchLogs` — record intros/recommendations made to a member |
