@@ -14,24 +14,47 @@ Return a JSON object with:
   - neighborhood: string
   - priceMax: number (USD)
   - priceMin: number (USD)
-  - amenities: string[] (e.g. ["tv", "outdoor seating", "dog friendly"])
+  - amenities: string[] (lowercase, e.g. ["tv", "outdoor seating", "dog friendly", "fireplace", "wifi", "pool table", "live music"])
+  - atmosphere: string[] (lowercase, e.g. ["quiet", "lively", "intimate", "dive bar"])
+  - product: string — a specific product or service the user is searching for (e.g. "buzz cut", "fade", "matcha latte"). Use this when the user mentions a specific menu item, especially with a price.
   - acceptsCrypto: boolean
   - acceptsCash: boolean
+  - acceptsEBT: boolean
+  - wheelchairAccessible: boolean
+  - freeParking: boolean
   - openLate: boolean
+  - open24Hours: boolean
+  - openWeekends: boolean
+  - veganOptions: boolean
+  - vegetarianOptions: boolean
+  - glutenFree: boolean
+  - halalCertified: boolean
+  - kosher: boolean
+  - byob: boolean
+  - fullBar: boolean
+  - sportsBar: boolean
+  - watchParties: boolean
+  - favoriteTeams: string[] (e.g. ["sf 49ers", "warriors"])
 - excludes: object (same shape as filters) — things the user said NOT to include
 - intent: "find" | "vibe" | "compare" | "recommend"
 
 Omit any key you can't confidently infer. Return valid JSON only.
 
 Examples:
-"buzz cuts under $15 in Chinatown with a TV"
-→ {"semantic":"buzz cut barbershop","filters":{"neighborhood":"Chinatown","priceMax":15,"amenities":["tv"]},"intent":"find"}
+"buzz cut under $15 in Chinatown with a TV"
+→ {"semantic":"buzz cut barbershop","filters":{"neighborhood":"chinatown","product":"buzz cut","priceMax":15,"amenities":["tv"]},"intent":"find"}
+
+"49ers bar open late with a fireplace SoMa"
+→ {"semantic":"sports bar 49ers fireplace","filters":{"neighborhood":"soma","sportsBar":true,"openLate":true,"favoriteTeams":["sf 49ers"],"amenities":["fireplace"]},"intent":"find"}
+
+"vegan halal options open Sunday Oakland"
+→ {"semantic":"vegan halal","filters":{"city":"oakland","veganOptions":true,"halalCertified":true,"openWeekends":true},"intent":"find"}
 
 "coffee shop with good vibes for working, not loud, not a chain"
-→ {"semantic":"quiet independent coffee shop for working","filters":{},"excludes":{"amenities":["loud"]},"intent":"vibe"}
+→ {"semantic":"quiet independent coffee shop for working","filters":{"atmosphere":["quiet"]},"excludes":{"atmosphere":["lively","loud"]},"intent":"vibe"}
 
 "muralist in Oakland for community events"
-→ {"semantic":"muralist community events","filters":{"memberType":"artist","city":"Oakland"},"intent":"find"}`;
+→ {"semantic":"muralist community events","filters":{"memberType":"artist","city":"oakland"},"intent":"find"}`;
 
 export async function parseSearchIntent(query) {
   try {

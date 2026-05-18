@@ -54,6 +54,10 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
 | `netlify/functions/backfill-structured.js` | Admin: parse `priceRange` → `priceMin`/`priceMax`, normalize `pricePerProduct`, re-embed (Pinecone metadata refresh). `?reembedAll=1` to force re-embed every member |
 | `netlify/functions/lib/priceParse.js` | `parsePriceRange("$10–$50") → {priceMin:10, priceMax:50}` + `normalizePricePerProduct()` |
+| `tests/search.test.js` | 38 unit tests for parser + filter logic. Run `npm test` |
+| `tests/e2e-search.js` | Real-stack proof of structured search (`buzz cut under $15 Chinatown`). Run `npm run test:e2e:search` |
+| `tests/e2e-onboarding.js` | Drives the real chat handler; asserts GPT captures all new structured fields. Run `npm run test:e2e:onboarding` |
+| `tests/e2e-backfill.js` | Exercises `/backfill-structured` against real Firestore + Pinecone. Run `npm run test:e2e:backfill` |
 | `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` to set arbitrary profile fields on any member |
 | `netlify/functions/match-log.js` | Admin: GET/POST `matchLogs` — record intros/recommendations made to a member |
 | `netlify/functions/claim-profile.js` | Admin: POST `{unclaimedId, claimedBy?, fields?}` — flip a harvested profile to `claimed` |

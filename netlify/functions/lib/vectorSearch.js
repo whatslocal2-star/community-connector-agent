@@ -25,6 +25,18 @@ function buildProfileText(profile) {
   if (profile.businessDescription)      parts.push(profile.businessDescription);
   if (profile.approvedBlurb)            parts.push(profile.approvedBlurb);
   if (profile.shareTypes?.length)       parts.push(`offers: ${profile.shareTypes.join(", ")}`);
+  if (profile.products?.length)         parts.push(`products: ${profile.products.join(", ")}`);
+  if (profile.services?.length)         parts.push(`services: ${profile.services.join(", ")}`);
+  if (Array.isArray(profile.pricePerProduct) && profile.pricePerProduct.length) {
+    const items = profile.pricePerProduct
+      .filter(p => p && p.name)
+      .map(p => p.price != null ? `${p.name} $${p.price}` : p.name)
+      .join(", ");
+    if (items) parts.push(`menu: ${items}`);
+  }
+  if (profile.amenities?.length)        parts.push(`amenities: ${profile.amenities.join(", ")}`);
+  if (profile.atmosphere?.length)       parts.push(`atmosphere: ${profile.atmosphere.join(", ")}`);
+  if (profile.favoriteTeams?.length)    parts.push(`teams: ${profile.favoriteTeams.join(", ")}`);
 
   // Shopper — frame as what they seek (same semantic space as vendor offerings)
   if (profile.interests?.length)        parts.push(profile.interests.join(", "));
@@ -70,11 +82,65 @@ export async function upsertMemberVector(memberId, profile) {
   await getIndex().upsert([{
     id: memberId,
     values: response.data[0].embedding,
-    metadata: {
-      memberType: profile.memberType || "unknown",
-      onboardingComplete: Boolean(profile.onboardingComplete),
-    },
+    metadata: buildPineconeMetadata(profile),
   }]);
+}
+
+function buildPineconeMetadata(profile) {
+  // Pinecone metadata supports string, number, boolean, and array<string>.
+  // Anything we want to hard-filter on must live here.
+  const md = {
+    memberType: profile.memberType || "unknown",
+    onboardingComplete: Boolean(profile.onboardingComplete),
+  };
+
+  const strFields = ["city", "neighborhood", "category", "subcategory", "discipline", "niche", "status"];
+  for (const k of strFields) if (profile[k]) md[k] = String(profile[k]).toLowerCase();
+
+  const numFields = ["priceMin", "priceMax", "latitude", "longitude"];
+  for (const k of numFields) {
+    const n = Number(profile[k]);
+    if (Number.isFinite(n)) md[k] = n;
+  }
+
+  const boolFields = [
+    "acceptsEBT", "acceptsCash", "acceptsCrypto",
+    "wheelchairAccessible", "freeParking",
+    "openLate", "open24Hours", "openWeekends",
+    "veganOptions", "vegetarianOptions", "glutenFree", "halalCertified", "kosher", "byob", "fullBar",
+    "sportsBar", "watchParties",
+    "unclaimed",
+  ];
+  for (const k of boolFields) if (typeof profile[k] === "boolean") md[k] = profile[k];
+
+  const arrFields = ["amenities", "atmosphere", "favoriteTeams"];
+  for (const k of arrFields) {
+    if (Array.isArray(profile[k]) && profile[k].length) {
+      md[k] = profile[k].filter(v => typeof v === "string").map(v => v.toLowerCase());
+    }
+  }
+
+  // Flatten pricePerProduct names for keyword filtering on product-level menus.
+  if (Array.isArray(profile.pricePerProduct) && profile.pricePerProduct.length) {
+    const names = profile.pricePerProduct
+      .filter(p => p && p.name)
+      .map(p => String(p.name).toLowerCase());
+    if (names.length) md.productNames = names;
+    const prices = profile.pricePerProduct
+      .map(p => Number(p?.price))
+      .filter(Number.isFinite);
+    if (prices.length) {
+      md.productPriceMin = Math.min(...prices);
+      md.productPriceMax = Math.max(...prices);
+    }
+  }
+
+  return md;
+}
+
+export async function deleteMemberVectors(ids) {
+  if (!process.env.PINECONE_API_KEY || !ids?.length) return;
+  try { await getIndex().deleteMany(ids); } catch (e) { console.error("deleteMemberVectors:", e.message); }
 }
 
 export async function findSimilarMembers(memberId, topK = 5) {
