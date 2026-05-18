@@ -48,6 +48,7 @@ This project serves as the **signup + data layer** for the Community Marketplace
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
 | `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` to set arbitrary profile fields on any member |
 | `netlify/functions/match-log.js` | Admin: GET/POST `matchLogs` — record intros/recommendations made to a member |
+| `netlify/functions/claim-profile.js` | Admin: POST `{unclaimedId, claimedBy?, fields?}` — flip a harvested profile to `claimed` |
 | `netlify/functions/lib/matchLog.js` | Firestore CRUD for `matchLogs` collection |
 | `netlify/functions/lib/extractOutcome.js` | GPT outcome extractor — turns NL feedback into structured signal |
 | `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
@@ -63,6 +64,7 @@ This project serves as the **signup + data layer** for the Community Marketplace
 | `trigger.config.ts` | Trigger.dev project config |
 | `trigger/harvest-events.ts` | Daily cron job — scrape subscribed channels, detect + reword events |
 | `trigger/followup-intros.ts` | Hourly cron — send 48h follow-up on pending matchLogs, route reply through `extractOutcome` |
+| `trigger/harvest-oakland.ts` | Weekly cron — harvest Oakland businesses from Google Places, GPT-enrich, store as `status:"unclaimed"` |
 
 **Firestore collections:**
 
@@ -86,6 +88,8 @@ handle, url
 active: true
 lastCheckedAt, createdAt
 ```
+
+**Unclaimed profiles** — harvested businesses live in `members` with `source: "google_places_harvest"` and `status: "unclaimed"`. Doc id is `gp_<place_id>`. Pinecone metadata sets `unclaimed: true` so search can include or exclude them. Claim via `/claim-profile` (admin).
 
 `matchLogs/{id}` — recorded intros/recommendations + outcome feedback
 ```
