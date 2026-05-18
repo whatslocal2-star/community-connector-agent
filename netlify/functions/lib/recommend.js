@@ -115,6 +115,7 @@ export async function makeFirstRecommendations(memberId, memberProfile, { channe
     query,
     excludeIds: [memberId],
     limit,
+    parseIntent: false,
   });
 
   const candidates = results.filter(r => r.id !== memberId).slice(0, limit);

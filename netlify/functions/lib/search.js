@@ -67,13 +67,13 @@ async function embedQuery(text) {
 
 // One unified search function. Used by the public search bar and (later)
 // by the chat agent. Hard filters first, then semantic ranking.
-export async function searchMembers({ query, filters = {}, excludes = {}, excludeIds = [], limit = 20, topK = 80 } = {}) {
+export async function searchMembers({ query, filters = {}, excludes = {}, excludeIds = [], limit = 20, topK = 80, parseIntent = true } = {}) {
   if (!query && Object.keys(filters).length === 0) {
     return { intent: { semantic: "", filters, excludes, intent: "find" }, results: [] };
   }
 
   let intent = { semantic: query || "", filters, excludes, intent: "find" };
-  if (query) {
+  if (query && parseIntent) {
     const parsed = await parseSearchIntent(query);
     intent = {
       semantic: parsed.semantic,
