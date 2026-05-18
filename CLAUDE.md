@@ -104,6 +104,8 @@ source: { platform, url }
 title, date, time, location, description
 originalExcerpt, reworded
 status: "pending" | "approved" | "rejected"
+rejectionReason ("not_local" | "too_promotional" | "already_posted" | "wrong_vibe" | "low_quality" | "duplicate" | "other")
+rejectionNote (free-text optional)
 createdAt, updatedAt
 ```
 

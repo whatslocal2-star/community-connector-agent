@@ -1,4 +1,4 @@
-import { loadEventSuggestions, updateEventSuggestionStatus } from "./lib/events.js";
+import { loadEventSuggestions, updateEventSuggestionStatus, REJECTION_REASONS } from "./lib/events.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +29,7 @@ export const handler = async (event) => {
 
     if (event.httpMethod === "PUT") {
       const body = JSON.parse(event.body);
-      const { id, status } = body;
+      const { id, status, rejectionReason, rejectionNote } = body;
       if (!id || !["approved", "rejected"].includes(status)) {
         return {
           statusCode: 400,
@@ -37,7 +37,14 @@ export const handler = async (event) => {
           body: JSON.stringify({ error: "id and status (approved|rejected) required" }),
         };
       }
-      await updateEventSuggestionStatus(id, status);
+      if (status === "rejected" && rejectionReason && !REJECTION_REASONS.includes(rejectionReason)) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: `rejectionReason must be one of ${REJECTION_REASONS.join(", ")}` }),
+        };
+      }
+      await updateEventSuggestionStatus(id, status, { rejectionReason, rejectionNote });
       return {
         statusCode: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

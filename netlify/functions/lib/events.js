@@ -26,13 +26,28 @@ export async function loadEventSuggestions({ status, memberId, limit = 50 } = {}
   return results.slice(0, limit);
 }
 
-export async function updateEventSuggestionStatus(id, status) {
+export async function updateEventSuggestionStatus(id, status, { rejectionReason, rejectionNote } = {}) {
   const db = getDb();
-  await db.collection("eventSuggestions").doc(id).update({
+  const update = {
     status,
     updatedAt: FieldValue.serverTimestamp(),
-  });
+  };
+  if (status === "rejected") {
+    if (rejectionReason) update.rejectionReason = rejectionReason;
+    if (rejectionNote) update.rejectionNote = rejectionNote;
+  }
+  await db.collection("eventSuggestions").doc(id).update(update);
 }
+
+export const REJECTION_REASONS = [
+  "not_local",
+  "too_promotional",
+  "already_posted",
+  "wrong_vibe",
+  "low_quality",
+  "duplicate",
+  "other",
+];
 
 export async function updateSubscriptionLastChecked(memberId, platform) {
   const db = getDb();
