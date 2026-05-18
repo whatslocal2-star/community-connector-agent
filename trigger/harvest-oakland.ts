@@ -1,4 +1,10 @@
 import { schedules } from "@trigger.dev/sdk";
+import {
+  initObservability,
+  captureError,
+  trackEvent,
+  flushObservability,
+} from "../netlify/functions/lib/observability.js";
 
 // Weekly proactive harvest: pull Oakland businesses from Google Places,
 // GPT-enrich, store as members with status="unclaimed". When a real
@@ -26,6 +32,7 @@ export const harvestOakland = schedules.task({
   id: "harvest-oakland",
   cron: "0 9 * * 0",
   run: async () => {
+    initObservability({ context: "trigger.harvest-oakland" });
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
     if (!apiKey) return { error: "GOOGLE_PLACES_API_KEY missing" };
 
@@ -107,6 +114,7 @@ export const harvestOakland = schedules.task({
             }
           } catch (err: any) {
             console.error(`Embed failed for ${memberId}:`, err.message);
+            captureError(err, { job: "harvest-oakland", step: "embed", memberId });
           }
         }
 
@@ -114,6 +122,8 @@ export const harvestOakland = schedules.task({
       }
     }
 
+    trackEvent("system", "oakland_harvest_run", { scanned, created, skipped });
+    await flushObservability();
     return { scanned, created, skipped };
   },
 });

@@ -1,4 +1,10 @@
 import { schedules } from "@trigger.dev/sdk";
+import {
+  initObservability,
+  captureError,
+  trackEvent,
+  flushObservability,
+} from "../netlify/functions/lib/observability.js";
 
 const EVENT_DETECTION_PROMPT = `You are scanning scraped web content for event announcements.
 
@@ -21,6 +27,7 @@ export const harvestEvents = schedules.task({
   id: "harvest-events",
   cron: "0 8 * * *",
   run: async () => {
+    initObservability({ context: "trigger.harvest-events" });
     const { initializeApp, cert, getApps } = await import("firebase-admin/app");
     const { getFirestore, FieldValue } = await import("firebase-admin/firestore");
     const OpenAI = (await import("openai")).default;
@@ -87,10 +94,13 @@ export const harvestEvents = schedules.task({
           });
         } catch (err) {
           console.error(`Error harvesting ${sub.type} for ${memberDoc.id}:`, err.message);
+          captureError(err, { job: "harvest-events", memberId: memberDoc.id, type: sub.type });
         }
       }
     }
 
+    trackEvent("system", "event_harvest_run", { membersChecked, totalEvents });
+    await flushObservability();
     return { membersChecked, totalEvents };
   },
 });
