@@ -173,6 +173,13 @@ createdAt, updatedAt
 - `PROLOCALIQ_URL` — base URL of the prolocaliq Express server (e.g. `https://prolocaliq.com`)
 - `CC_SYNC_TOKEN` — shared secret; must also be set on prolocaliq as `CC_SYNC_TOKEN`
 
+**Observability (server-side only — this app is a backend service; client analytics live in the marketplace app):**
+- `SENTRY_DSN` — Sentry project DSN. Captures errors from Netlify functions + Trigger jobs (chat, sms, post-save pipeline, all 3 crons). Set in both Netlify and Trigger.dev dashboards.
+- `SENTRY_ENVIRONMENT` — defaults to `production` (or Netlify's `CONTEXT`)
+- `POSTHOG_API_KEY` — PostHog server-side key. Captures business events keyed by member id: `profile_completed`, `first_recs_sent`, `outcome_received`, `followup_sent`, `event_harvest_run`, `oakland_harvest_run`, `followup_run`
+- `POSTHOG_HOST` — defaults to `https://us.i.posthog.com`
+- Single wrapper: `netlify/functions/lib/observability.js` — `initObservability`, `captureError`, `trackEvent`, `flushObservability`. All no-op when env vars are unset, so local dev and tests don't need keys.
+
 **Trigger.dev (v4, project `xeno` / `proj_xlqnddtyofcgtvjudspi` under `xen-209f` org):**
 - Deploy: `npx trigger.dev@latest deploy` (must match `@trigger.dev/sdk` v4.x pinned in package.json)
 - Env vars set in Trigger.dev dashboard mirror Netlify: `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER` (for follow-up SMS), `GOOGLE_PLACES_API_KEY` (for Oakland harvest)

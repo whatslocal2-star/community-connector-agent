@@ -9,6 +9,9 @@ import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
 import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
+import { initObservability, captureError, trackEvent, flushObservability } from "./lib/observability.js";
+
+initObservability({ context: "sms" });
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -76,6 +79,13 @@ export const handler = async (event) => {
         } catch (err) { console.error("Embed after outcome error:", err); }
       }
 
+      trackEvent(fromNumber, "outcome_received", {
+        channel: "sms",
+        matchLogId: awaiting.id,
+        attended: outcome?.attended ?? null,
+        sentiment: outcome?.sentiment ?? null,
+        would_repeat: outcome?.would_repeat ?? null,
+      });
       const ack = "Thanks for letting us know — that really helps us find better connections for you.";
       const history = await loadConversation(fromNumber);
       history.push({ role: "user", content: incomingText });
@@ -125,10 +135,23 @@ export const handler = async (event) => {
             if (recs?.paragraph) {
               replyText = `${replyText}\n\n${recs.paragraph}`;
               await saveMember(fromNumber, { profileUpdate: { firstRecsMadeAt: new Date().toISOString() } });
+              trackEvent(fromNumber, "first_recs_sent", {
+                channel: "sms",
+                memberType: member.profile.memberType,
+                recCount: recs.matches?.length ?? null,
+              });
             }
           } catch (err) {
-            console.error("makeFirstRecommendations error:", err);
+            captureError(err, { fn: "sms", step: "makeFirstRecommendations", phone: fromNumber });
           }
+        }
+
+        if (profileUpdate && !member.profile.firstRecsMadeAt && shouldRecommend(member.profile)) {
+          trackEvent(fromNumber, "profile_completed", {
+            channel: "sms",
+            memberType: member.profile.memberType,
+            city: member.profile.city ?? null,
+          });
         }
 
         if (shouldCrossRef(member.profile)) {
@@ -146,6 +169,7 @@ export const handler = async (event) => {
       }
     } catch (err) {
       console.error("Embed/recommend error:", err);
+      captureError(err, { fn: "sms", step: "embed-recommend", phone: fromNumber });
     }
 
     history.push({ role: "assistant", content: replyText });
@@ -154,6 +178,7 @@ export const handler = async (event) => {
     await sendSms(fromNumber, replyFrom, replyText);
   } catch (err) {
     console.error("SMS handler error:", err);
+    captureError(err, { fn: "sms", step: "top-level", phone: fromNumber });
     try {
       await sendSms(fromNumber, replyFrom, "Sorry, something went wrong. Please try again in a moment.");
     } catch {
@@ -161,5 +186,6 @@ export const handler = async (event) => {
     }
   }
 
+  await flushObservability();
   return { statusCode: 200, body: "OK" };
 };

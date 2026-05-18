@@ -12,6 +12,9 @@ import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
 import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
+import { initObservability, captureError, trackEvent, flushObservability } from "./lib/observability.js";
+
+initObservability({ context: "chat" });
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -59,6 +62,13 @@ export const handler = async (event) => {
           } catch (err) { console.error("Embed after outcome error:", err); }
         }
 
+        trackEvent(sessionId, "outcome_received", {
+          channel: "web",
+          matchLogId: awaiting.id,
+          attended: outcome?.attended ?? null,
+          sentiment: outcome?.sentiment ?? null,
+          would_repeat: outcome?.would_repeat ?? null,
+        });
         const ack = "Thanks for sharing that — it really helps us find better connections for you.";
         const updatedHistory = [...messages, { role: "assistant", content: ack }];
         await saveMember(sessionId, { history: updatedHistory, meta: { source: "web" } });
@@ -105,10 +115,23 @@ export const handler = async (event) => {
               if (recs?.paragraph) {
                 finalReply = `${reply}\n\n${recs.paragraph}`;
                 await saveMember(sessionId, { profileUpdate: { firstRecsMadeAt: new Date().toISOString() } });
+                trackEvent(sessionId, "first_recs_sent", {
+                  channel: "web",
+                  memberType: member.profile.memberType,
+                  recCount: recs.matches?.length ?? null,
+                });
               }
             } catch (err) {
-              console.error("makeFirstRecommendations error:", err);
+              captureError(err, { fn: "chat", step: "makeFirstRecommendations", sessionId });
             }
+          }
+
+          if (profileUpdate && !member.profile.firstRecsMadeAt && shouldRecommend(member.profile)) {
+            trackEvent(sessionId, "profile_completed", {
+              channel: "web",
+              memberType: member.profile.memberType,
+              city: member.profile.city ?? null,
+            });
           }
 
           const updatedHistory = [...messages, { role: "assistant", content: finalReply }];
@@ -159,8 +182,11 @@ export const handler = async (event) => {
         }
       } catch (err) {
         console.error("Save/embed error:", err);
+        captureError(err, { fn: "chat", step: "save-embed-pipeline", sessionId });
       }
     }
+
+    await flushObservability();
 
     return {
       statusCode: 200,
@@ -169,6 +195,8 @@ export const handler = async (event) => {
     };
   } catch (err) {
     console.error("OpenAI error:", err);
+    captureError(err, { fn: "chat", step: "top-level", sessionId });
+    await flushObservability();
     return {
       statusCode: 500,
       headers: { ...corsHeaders },

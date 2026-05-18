@@ -1,4 +1,10 @@
 import { schedules } from "@trigger.dev/sdk";
+import {
+  initObservability,
+  captureError,
+  trackEvent,
+  flushObservability,
+} from "../netlify/functions/lib/observability.js";
 
 // Runs hourly. Finds matchLogs that are >=48h old and still "pending",
 // sends a follow-up message asking how the intro/recommendation went,
@@ -9,6 +15,7 @@ export const followupIntros = schedules.task({
   id: "followup-intros",
   cron: "0 * * * *",
   run: async () => {
+    initObservability({ context: "trigger.followup-intros" });
     const { initializeApp, cert, getApps } = await import("firebase-admin/app");
     const { getFirestore, FieldValue } = await import("firebase-admin/firestore");
 
@@ -54,11 +61,19 @@ export const followupIntros = schedules.task({
           followUpText,
         });
         sent++;
+        trackEvent(log.memberId, "followup_sent", {
+          channel: log.channel,
+          matchLogId: doc.id,
+          matchedMemberId: log.matchedMemberId,
+        });
       } catch (err: any) {
         console.error(`Follow-up failed for ${doc.id}:`, err.message);
+        captureError(err, { job: "followup-intros", matchLogId: doc.id, channel: log.channel });
       }
     }
 
+    trackEvent("system", "followup_run", { sent, skipped, candidates: due.length });
+    await flushObservability();
     return { sent, skipped, candidates: due.length };
   },
 });
