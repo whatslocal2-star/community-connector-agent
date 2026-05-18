@@ -15,7 +15,7 @@ This project serves as the **signup + data layer** for the Community Marketplace
 5. Parse `{ reply, profileUpdate }` from response
 6. Save profile update + embed to Pinecone
 7. **Recommendation step:** if `shouldRecommend(profile)` returns true (name + memberType + ≥2 substantive fields, `firstRecsMadeAt` unset), run `makeFirstRecommendations` — search top 3 via `searchMembers({parseIntent:false})` excluding self, write a matchLog per candidate, GPT-write a natural blurb, append to reply, set `firstRecsMadeAt`. One-shot per member.
-8. Post-save pipeline (fire-and-forget): subscriptions, enrichment, prolocaliq sync (same as before)
+8. Post-save pipeline (fire-and-forget): subscriptions, cross-reference verification (Gemini, when ≥2 contact channels captured), enrichment, prolocaliq sync
 9. Save final reply + history; return to client
 
 **The self-improving loop (core thesis):**
@@ -52,11 +52,14 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/lib/searchIntent.js` | GPT NL → `{semantic, filters, excludes, intent}` parser |
 | `netlify/functions/lib/recommend.js` | First-recommendation pipeline: search → top 3 → matchLog per candidate → natural blurb appended to reply |
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
+| `netlify/functions/backfill-structured.js` | Admin: parse `priceRange` → `priceMin`/`priceMax`, normalize `pricePerProduct`, re-embed (Pinecone metadata refresh). `?reembedAll=1` to force re-embed every member |
+| `netlify/functions/lib/priceParse.js` | `parsePriceRange("$10–$50") → {priceMin:10, priceMax:50}` + `normalizePricePerProduct()` |
 | `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` to set arbitrary profile fields on any member |
 | `netlify/functions/match-log.js` | Admin: GET/POST `matchLogs` — record intros/recommendations made to a member |
 | `netlify/functions/claim-profile.js` | Admin: POST `{unclaimedId, claimedBy?, fields?}` — flip a harvested profile to `claimed` |
 | `netlify/functions/verify.js` | Admin: GET `?memberId=` lists available methods + current state; POST `{memberId, method, value}` runs ownership verification (Places API / Firecrawl / IG match / Gemini fallback) and writes `profile.ownershipVerification` on success |
 | `netlify/functions/lib/verify.js` | Verification engine — ported from marketplace `feat/vendor-verification` branch; single source of truth for both apps |
+| `netlify/functions/lib/verifyCrossRef.js` | Onboarding-time cross-reference verification: when ≥2 contact channels (website / GMaps / IG / phone) captured, fires Gemini grounded check asking if all channels describe the same business; writes `profile.ownershipVerification` with confidence 0–1. Fire-and-forget from chat/sms. |
 | `netlify/functions/lib/matchLog.js` | Firestore CRUD for `matchLogs` collection |
 | `netlify/functions/lib/extractOutcome.js` | GPT outcome extractor — turns NL feedback into structured signal |
 | `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
@@ -83,6 +86,14 @@ profile (flat object — no nested objects allowed)
   interests, goals, painPoints, dislikes (arrays)
   eventPostingPlatforms (array — e.g. ["instagram", "eventbrite", "website"])
   city, neighborhood, vibe, notes, personalNote, approvedBlurb, ...
+  priceRange (string e.g. "$10–$50"), priceMin (number), priceMax (number)
+  pricePerProduct ([{name, price}] — unlocks accurate per-item search like "buzz cut under $15")
+  amenities (array, lowercase: "outdoor seating", "fireplace", "wifi", "dog friendly", "tv", "pool table", ...)
+  atmosphere (array, lowercase: "quiet", "lively", "intimate", "dive bar", "date night", ...)
+  acceptsEBT, acceptsCash, acceptsCrypto, wheelchairAccessible, freeParking (booleans)
+  openLate, open24Hours, openWeekends (booleans)
+  veganOptions, vegetarianOptions, glutenFree, halalCertified, kosher, byob, fullBar (booleans)
+  sportsBar (bool), watchParties (bool), favoriteTeams (array, e.g. ["SF 49ers"])
   enrichedAt (ISO string — set after first enrichment)
   prolocaliqSynced, prolocaliqAccountId
   firstRecsMadeAt (ISO string — set after first recommendation round; gates one-shot)
@@ -138,7 +149,7 @@ createdAt, updatedAt
 - **Enrichment only fills gaps** — never overwrites user-provided data. Checks `member.profile[k]` before writing each extracted field.
 - **SMS prompt is identical to web** except "keep responses SHORT — 1-3 sentences max". History capped at 20 messages.
 - **Anonymous discovery** is a feature but not advertised — only explain if user explicitly asks.
-- **Vector metadata** stores only `memberType` + `onboardingComplete`; full profile goes into embedding text.
+- **Vector metadata** now stores `memberType`, `onboardingComplete`, `city`, `neighborhood`, `category`, `subcategory`, `priceMin`/`priceMax`, all boolean amenity/access flags, `amenities[]`, `atmosphere[]`, `favoriteTeams[]`, plus flattened `productNames[]`/`productPriceMin`/`productPriceMax`. Hard filters run at the Pinecone metadata level — semantic ranking only sees candidates that already satisfy structured constraints. Full profile text still goes into the embedding.
 - **Admin auth:** Bearer token (`ADMIN_TOKEN`) checked on `/admin`, `/matches`, `/enrich`, `/subscriptions`, `/event-suggestions`, `/match-log`, `/patch-member`, `/claim-profile`.
 - **Marketplace endpoints are public** — `marketplace-members`, `marketplace-member`, `marketplace-events` require no auth. `phone` field stripped before returning.
 - **Location capture:** vendors/organizers asked for Google Maps link → saved as `googleMapsUrl` → `parseLocation.js` extracts `latitude`/`longitude` in background post-save. Supports all URL formats + `maps.app.goo.gl` short links. Run `backfill-locations` (admin) to parse existing records missing coords.

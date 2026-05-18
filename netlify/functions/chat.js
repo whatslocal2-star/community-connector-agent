@@ -10,6 +10,8 @@ import { parseGoogleMapsUrl } from "./lib/parseLocation.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
+import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
+import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -80,7 +82,19 @@ export const handler = async (event) => {
 
     if (sessionId) {
       try {
-        await saveMember(sessionId, { profileUpdate, meta: { source: "web" } });
+        // Normalize structured fields before save so search filters work.
+        let normalizedUpdate = profileUpdate;
+        if (profileUpdate && typeof profileUpdate === "object") {
+          normalizedUpdate = { ...profileUpdate };
+          if (profileUpdate.priceRange && profileUpdate.priceMin == null && profileUpdate.priceMax == null) {
+            const parsed = parsePriceRange(profileUpdate.priceRange);
+            if (parsed) Object.assign(normalizedUpdate, parsed);
+          }
+          if (profileUpdate.pricePerProduct) {
+            normalizedUpdate.pricePerProduct = normalizePricePerProduct(profileUpdate.pricePerProduct);
+          }
+        }
+        await saveMember(sessionId, { profileUpdate: normalizedUpdate, meta: { source: "web" } });
         const member = await loadMember(sessionId);
         if (member?.profile) {
           await upsertMemberVector(sessionId, member.profile);
@@ -115,6 +129,12 @@ export const handler = async (event) => {
                 await saveMember(sessionId, { profileUpdate: coords });
               }
             }).catch(err => console.error("Location parse error:", err));
+          }
+
+          if (shouldCrossRef(member.profile)) {
+            runCrossRefVerify(sessionId, member.profile).catch(err =>
+              console.error("Cross-ref verify error:", err)
+            );
           }
 
           if (hasEnrichableData(profileUpdate) && !member.profile.enrichedAt) {

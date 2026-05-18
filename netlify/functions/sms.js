@@ -3,10 +3,12 @@ import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
 import { loadConversation, loadMember, saveMember } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
+import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
+import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -99,7 +101,18 @@ export const handler = async (event) => {
     const { reply, profileUpdate } = parseCompletion(completion);
     let replyText = reply || "Sorry, something went wrong. Please try again.";
 
-    await saveMember(fromNumber, { profileUpdate, meta: { phone: fromNumber, source: "sms" } });
+    let normalizedUpdate = profileUpdate;
+    if (profileUpdate && typeof profileUpdate === "object") {
+      normalizedUpdate = { ...profileUpdate };
+      if (profileUpdate.priceRange && profileUpdate.priceMin == null && profileUpdate.priceMax == null) {
+        const parsed = parsePriceRange(profileUpdate.priceRange);
+        if (parsed) Object.assign(normalizedUpdate, parsed);
+      }
+      if (profileUpdate.pricePerProduct) {
+        normalizedUpdate.pricePerProduct = normalizePricePerProduct(profileUpdate.pricePerProduct);
+      }
+    }
+    await saveMember(fromNumber, { profileUpdate: normalizedUpdate, meta: { phone: fromNumber, source: "sms" } });
 
     try {
       const member = await loadMember(fromNumber);
@@ -116,6 +129,12 @@ export const handler = async (event) => {
           } catch (err) {
             console.error("makeFirstRecommendations error:", err);
           }
+        }
+
+        if (shouldCrossRef(member.profile)) {
+          runCrossRefVerify(fromNumber, member.profile).catch(err =>
+            console.error("Cross-ref verify error:", err)
+          );
         }
 
         if (isReadyToSync(member.profile)) {
