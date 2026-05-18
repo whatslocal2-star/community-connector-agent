@@ -1,4 +1,4 @@
-import { schedules } from "@trigger.dev/sdk/v3";
+import { schedules } from "@trigger.dev/sdk";
 
 // Runs hourly. Finds matchLogs that are >=48h old and still "pending",
 // sends a follow-up message asking how the intro/recommendation went,

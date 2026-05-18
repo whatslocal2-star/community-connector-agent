@@ -1,4 +1,4 @@
-import { schedules } from "@trigger.dev/sdk/v3";
+import { schedules } from "@trigger.dev/sdk";
 
 // Weekly proactive harvest: pull Oakland businesses from Google Places,
 // GPT-enrich, store as members with status="unclaimed". When a real

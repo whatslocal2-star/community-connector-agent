@@ -1,8 +1,8 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
 
 export default defineConfig({
-  project: "community-connector",
-  runtime: "node",
+  project: "proj_xlqnddtyofcgtvjudspi",
+  runtime: "node-22",
   logLevel: "log",
   maxDuration: 600,
   retries: {

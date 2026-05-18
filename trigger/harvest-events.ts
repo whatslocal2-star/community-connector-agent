@@ -1,4 +1,4 @@
-import { schedules } from "@trigger.dev/sdk/v3";
+import { schedules } from "@trigger.dev/sdk";
 
 const EVENT_DETECTION_PROMPT = `You are scanning scraped web content for event announcements.
 
