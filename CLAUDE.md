@@ -9,23 +9,28 @@ This project serves as the **signup + data layer** for the Community Marketplace
 
 **Request flow (per chat turn):**
 1. User message arrives (web POST to `/functions/chat` or Telnyx webhook to `/functions/sms`)
-2. Load conversation history from Firestore by `sessionId` (web) or phone number (SMS)
-3. Append message → call OpenAI `gpt-4o-mini` with system prompt + history, `response_format: json_object`
-4. Parse `{ reply, profileUpdate }` from response
-5. Save member doc (upsert) + history to Firestore
-6. Embed profile text → upsert to Pinecone
-7. Post-save pipeline (fire-and-forget, non-blocking):
-   a. **Subscriptions** — if `eventPostingPlatforms` captured, create subscription records in subcollection
-   b. **Enrichment** — if a URL captured and not yet enriched, scrape website (Jina Reader) + Google Places → GPT extraction → merge new fields into profile
-   c. **ProLocalIQ sync** — if name + email + memberType present and not yet synced, POST to prolocaliq
-8. Return `reply` to client
+2. **Outcome short-circuit:** if this member has a matchLog with `status:"followed_up"` (loadAwaitingOutcome), treat the incoming message as feedback on a past intro — route through `extractOutcome` (GPT → structured signal), call `recordOutcome`, merge any `implicit_profile_updates` into the profile, re-embed, send a thank-you ack, and return. Skip normal LLM turn.
+3. Otherwise: load conversation history from Firestore by `sessionId` (web) or phone number (SMS)
+4. Append message → call OpenAI `gpt-4o-mini` with system prompt + history, `response_format: json_object`
+5. Parse `{ reply, profileUpdate }` from response
+6. Save profile update + embed to Pinecone
+7. **Recommendation step:** if `shouldRecommend(profile)` returns true (name + memberType + ≥2 substantive fields, `firstRecsMadeAt` unset), run `makeFirstRecommendations` — search top 3 via `searchMembers({parseIntent:false})` excluding self, write a matchLog per candidate, GPT-write a natural blurb, append to reply, set `firstRecsMadeAt`. One-shot per member.
+8. Post-save pipeline (fire-and-forget): subscriptions, enrichment, prolocaliq sync (same as before)
+9. Save final reply + history; return to client
+
+**The self-improving loop (core thesis):**
+Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `followup-intros` cron sends "how'd it go?" → member replies → `extractOutcome` turns NL into structured signal + implicit profile updates → re-embed → next recommendations are smarter. Every completed matchLog is a labeled training example for a future re-ranker.
 
 **Event harvest (Trigger.dev cron — daily 8am):**
 1. Query all members with active subscriptions
 2. For each subscription, scrape the channel URL via Jina Reader
 3. Send content to GPT to detect events and reword in community-first voice
 4. Save event suggestions to `eventSuggestions` collection with status "pending"
-5. Admin reviews/approves via `event-suggestions` endpoint
+5. Admin reviews/approves (rejection captures structured `rejectionReason` + optional `rejectionNote` for future prompt analysis)
+
+**Follow-up cron (hourly):** scan `matchLogs` for `status:"pending" && introducedAt < now-48h`. SMS members get a Telnyx follow-up; web members get a system-initiated assistant message appended to their history (appears on next chat load). Flips status to `followed_up`.
+
+**Oakland harvest (weekly, Sun 9am):** iterate 9 seed types (restaurant, cafe, bar, bakery, store, art_gallery, beauty_salon, book_store, clothing_store) via Google Places Nearby Search around `37.8044,-122.2712` r=8km. Idempotent (skips existing `place_id`). For each new place: Place Details → GPT-enrich → store as member `gp_<place_id>` with `source:"google_places_harvest"`, `status:"unclaimed"` → embed with Pinecone metadata `unclaimed:true`. Requires `GOOGLE_PLACES_API_KEY`.
 
 **Key files:**
 | File | Purpose |
@@ -78,8 +83,11 @@ profile (flat object — no nested objects allowed)
   city, neighborhood, vibe, notes, personalNote, approvedBlurb, ...
   enrichedAt (ISO string — set after first enrichment)
   prolocaliqSynced, prolocaliqAccountId
+  firstRecsMadeAt (ISO string — set after first recommendation round; gates one-shot)
 history: [{ role, content }]
-lastActiveAt, source ("web" | "sms"), phone (SMS only)
+status (top-level: "unclaimed" | "claimed" — only set for harvested profiles)
+claimedAt, claimedBy
+lastActiveAt, source ("web" | "sms" | "google_places_harvest"), phone (SMS only)
 ```
 
 `members/{id}/subscriptions/{platform}` — event source subscriptions
@@ -128,7 +136,7 @@ createdAt, updatedAt
 - **SMS prompt is identical to web** except "keep responses SHORT — 1-3 sentences max". History capped at 20 messages.
 - **Anonymous discovery** is a feature but not advertised — only explain if user explicitly asks.
 - **Vector metadata** stores only `memberType` + `onboardingComplete`; full profile goes into embedding text.
-- **Admin auth:** Bearer token (`ADMIN_TOKEN`) checked on `/admin`, `/matches`, `/enrich`, `/subscriptions`, and `/event-suggestions` endpoints.
+- **Admin auth:** Bearer token (`ADMIN_TOKEN`) checked on `/admin`, `/matches`, `/enrich`, `/subscriptions`, `/event-suggestions`, `/match-log`, `/patch-member`, `/claim-profile`.
 - **Marketplace endpoints are public** — `marketplace-members`, `marketplace-member`, `marketplace-events` require no auth. `phone` field stripped before returning.
 - **Location capture:** vendors/organizers asked for Google Maps link → saved as `googleMapsUrl` → `parseLocation.js` extracts `latitude`/`longitude` in background post-save. Supports all URL formats + `maps.app.goo.gl` short links. Run `backfill-locations` (admin) to parse existing records missing coords.
 
@@ -142,9 +150,10 @@ createdAt, updatedAt
 - `PROLOCALIQ_URL` — base URL of the prolocaliq Express server (e.g. `https://prolocaliq.com`)
 - `CC_SYNC_TOKEN` — shared secret; must also be set on prolocaliq as `CC_SYNC_TOKEN`
 
-**Trigger.dev (set in Trigger.dev dashboard):**
-- `TRIGGER_SECRET_KEY` — project API key
-- Same `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` as Netlify
+**Trigger.dev (v4, project `xeno` / `proj_xlqnddtyofcgtvjudspi` under `xen-209f` org):**
+- Deploy: `npx trigger.dev@latest deploy` (must match `@trigger.dev/sdk` v4.x pinned in package.json)
+- Env vars set in Trigger.dev dashboard mirror Netlify: `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER` (for follow-up SMS), `GOOGLE_PLACES_API_KEY` (for Oakland harvest)
+- `trigger.config.ts` requires `runtime: "node-22"` and `maxDuration: 600`
 
 ## Recent Decisions
 - Enforce flat Firestore schema with merge behavior (no nested profile objects)
@@ -160,3 +169,7 @@ createdAt, updatedAt
 - Category/subcategory taxonomy: GPT auto-assigns from canonical taxonomy during onboarding; marketplace has 3-row filter (type → category → subcategory pills); shown on cards and profile headers
 - `patch-member` admin endpoint: POST `{id, fields}` to manually set any profile fields (used for backfills)
 - Marketplace profile pages show all social channels/contacts captured during onboarding: hardcoded support for Instagram, TikTok, Twitter/X, Threads, YouTube, LinkedIn, Spotify, SoundCloud, Facebook, Eventbrite, Bandsintown, Songkick, Meetup, Pinterest; plus a dynamic catch-all that auto-renders any unknown `*Handle` or `*Url` field with a generic link icon
+- **Self-improving loop is live:** matchLog + extractOutcome + followup-intros cron close the feedback loop. Every onboarded member who passes `shouldRecommend` gets 3 first-round intros, each one a labeled training example once outcome feedback comes in. Verified end-to-end locally — implicit profile updates from a single NL reply got merged back correctly.
+- **Unified search (`/search`)** is the single function backing both the public search bar and the chat agent's recommendation pipeline. GPT intent parser splits NL queries into `{semantic, filters, excludes, intent}`; pass `parseIntent:false` for recommendation queries (avoids over-aggressive hard filters on profile-text queries).
+- **Proactive Oakland harvest:** weekly Google Places scrape builds `status:"unclaimed"` profiles for businesses that haven't signed up. Solves cold start — new members arrive to an already-populated network. Real claim verification (email/phone) still TODO; `claim-profile` is a stub for manual claims.
+- **Trigger.dev v4 migration done** (was v3); import is `@trigger.dev/sdk` (not `/v3`), runtime `node-22`, project ref `proj_xlqnddtyofcgtvjudspi`. Pin the SDK exactly to whatever v4.x the CLI ships (caret ranges fail "Invalid Version").
