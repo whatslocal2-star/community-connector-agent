@@ -55,6 +55,8 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` to set arbitrary profile fields on any member |
 | `netlify/functions/match-log.js` | Admin: GET/POST `matchLogs` — record intros/recommendations made to a member |
 | `netlify/functions/claim-profile.js` | Admin: POST `{unclaimedId, claimedBy?, fields?}` — flip a harvested profile to `claimed` |
+| `netlify/functions/verify.js` | Admin: GET `?memberId=` lists available methods + current state; POST `{memberId, method, value}` runs ownership verification (Places API / Firecrawl / IG match / Gemini fallback) and writes `profile.ownershipVerification` on success |
+| `netlify/functions/lib/verify.js` | Verification engine — ported from marketplace `feat/vendor-verification` branch; single source of truth for both apps |
 | `netlify/functions/lib/matchLog.js` | Firestore CRUD for `matchLogs` collection |
 | `netlify/functions/lib/extractOutcome.js` | GPT outcome extractor — turns NL feedback into structured signal |
 | `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
@@ -84,6 +86,7 @@ profile (flat object — no nested objects allowed)
   enrichedAt (ISO string — set after first enrichment)
   prolocaliqSynced, prolocaliqAccountId
   firstRecsMadeAt (ISO string — set after first recommendation round; gates one-shot)
+  ownershipVerification (object — { verified, method, evidence, verifiedAt, verifiedValue } when /verify succeeds)
 history: [{ role, content }]
 status (top-level: "unclaimed" | "claimed" — only set for harvested profiles)
 claimedAt, claimedBy
@@ -146,6 +149,11 @@ createdAt, updatedAt
 **Profile enrichment:**
 - `GOOGLE_PLACES_API_KEY` — Google Places API key for business lookups (optional; enrichment works without it using website-only scraping via Jina Reader)
 
+**Ownership verification (`/verify`):**
+- `GOOGLE_PLACES_API_KEY` — reused; phone cross-check via Places Text Search
+- `FIRECRAWL_API_KEY` — website email scraping
+- `GEMINI_API_KEY` — Gemini 2.0 Flash fallback when structured methods fail
+
 **ProLocalIQ sync:**
 - `PROLOCALIQ_URL` — base URL of the prolocaliq Express server (e.g. `https://prolocaliq.com`)
 - `CC_SYNC_TOKEN` — shared secret; must also be set on prolocaliq as `CC_SYNC_TOKEN`
@@ -173,3 +181,4 @@ createdAt, updatedAt
 - **Unified search (`/search`)** is the single function backing both the public search bar and the chat agent's recommendation pipeline. GPT intent parser splits NL queries into `{semantic, filters, excludes, intent}`; pass `parseIntent:false` for recommendation queries (avoids over-aggressive hard filters on profile-text queries).
 - **Proactive Oakland harvest:** weekly Google Places scrape builds `status:"unclaimed"` profiles for businesses that haven't signed up. Solves cold start — new members arrive to an already-populated network. Real claim verification (email/phone) still TODO; `claim-profile` is a stub for manual claims.
 - **Trigger.dev v4 migration done** (was v3); import is `@trigger.dev/sdk` (not `/v3`), runtime `node-22`, project ref `proj_xlqnddtyofcgtvjudspi`. Pin the SDK exactly to whatever v4.x the CLI ships (caret ranges fail "Invalid Version").
+- **Ownership verification engine ported from marketplace** — `lib/verify.js` is the single source of truth. Both apps call `/verify` here. Methods: phone (Google Places API), website_email (Firecrawl scrape + regex), instagram (handle match), gemini (Gemini 2.0 Flash with grounded search) as catch-all. Structured methods escalate to Gemini automatically on failure. Saves `profile.ownershipVerification` on success.
