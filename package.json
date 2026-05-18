@@ -18,5 +18,8 @@
     "firebase-admin": "^13.8.0",
     "openai": "^4.78.0",
     "typescript": "^5.5.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1049.0"
   }
 }
