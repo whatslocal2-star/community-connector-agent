@@ -9,6 +9,10 @@ import { schedules } from "@trigger.dev/sdk";
 
 const OAKLAND_CENTER = { lat: 37.8044, lng: -122.2712 };
 const RADIUS_METERS = 8000;
+// Hard ceiling on new profiles per run. Caps Google Places spend
+// (~$0.04/profile across Nearby + Details + GPT). 50/week = ~$2/week
+// worst case. Idempotency means we keep making progress over time.
+const MAX_NEW_PER_RUN = 50;
 
 const SEED_TYPES = [
   "restaurant",
@@ -54,11 +58,12 @@ export const harvestOakland = schedules.task({
     let created = 0;
     let skipped = 0;
 
-    for (const type of SEED_TYPES) {
+    outer: for (const type of SEED_TYPES) {
       const places = await nearbySearch(apiKey, OAKLAND_CENTER, RADIUS_METERS, type);
       scanned += places.length;
 
       for (const place of places) {
+        if (created >= MAX_NEW_PER_RUN) break outer;
         if (!place.place_id) continue;
         const memberId = `gp_${place.place_id}`;
 
