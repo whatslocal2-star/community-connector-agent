@@ -14,12 +14,16 @@ import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const MAX_HISTORY = 20;
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+const capHistory = (msgs) => msgs.slice(-MAX_HISTORY);
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
@@ -41,11 +45,18 @@ export const handler = async (event) => {
   if (!Array.isArray(messages)) {
     return { statusCode: 400, headers: { ...corsHeaders }, body: JSON.stringify({ error: "messages must be an array" }) };
   }
+  if (!sessionId || typeof sessionId !== "string" || !SESSION_ID_RE.test(sessionId)) {
+    return { statusCode: 400, headers: { ...corsHeaders }, body: JSON.stringify({ error: "sessionId (UUID) required" }) };
+  }
+
+  // Cap incoming history so a long-lived session can't push the Firestore
+  // doc toward the 1MB limit (and to bound OpenAI token spend per turn).
+  const cappedMessages = capHistory(messages);
 
   try {
-    if (sessionId) {
+    {
       const awaiting = await loadAwaitingOutcome(sessionId);
-      const lastUserMsg = [...messages].reverse().find(m => m.role === "user")?.content;
+      const lastUserMsg = [...cappedMessages].reverse().find(m => m.role === "user")?.content;
       if (awaiting && lastUserMsg) {
         const outcome = await extractOutcome(lastUserMsg, { reason: awaiting.reason });
         await recordOutcome(awaiting.id, { raw: lastUserMsg, outcome });
@@ -60,7 +71,7 @@ export const handler = async (event) => {
         }
 
         const ack = "Thanks for sharing that — it really helps us find better connections for you.";
-        const updatedHistory = [...messages, { role: "assistant", content: ack }];
+        const updatedHistory = capHistory([...cappedMessages, { role: "assistant", content: ack }]);
         await saveMember(sessionId, { history: updatedHistory, meta: { source: "web" } });
         return {
           statusCode: 200,
@@ -73,14 +84,14 @@ export const handler = async (event) => {
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 512,
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...cappedMessages],
       response_format: { type: "json_object" },
     });
 
     const { reply, profileUpdate } = parseCompletion(completion);
     let finalReply = reply;
 
-    if (sessionId) {
+    {
       try {
         // Normalize structured fields before save so search filters work.
         let normalizedUpdate = profileUpdate;
@@ -111,7 +122,7 @@ export const handler = async (event) => {
             }
           }
 
-          const updatedHistory = [...messages, { role: "assistant", content: finalReply }];
+          const updatedHistory = capHistory([...cappedMessages, { role: "assistant", content: finalReply }]);
           await saveMember(sessionId, { history: updatedHistory, meta: { source: "web" } });
 
           if (hasNewSubscriptionData(profileUpdate)) {
