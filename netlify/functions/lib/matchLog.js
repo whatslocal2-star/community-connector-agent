@@ -65,11 +65,19 @@ export async function recordOutcome(matchLogId, { raw, outcome }) {
 
 export async function loadAwaitingOutcome(memberId) {
   const db = getDb();
-  const snap = await db.collection("matchLogs").where("memberId", "==", memberId).get();
+  // Bounded query — this runs on every chat turn. A power user with
+  // hundreds of matchLogs would otherwise read the entire collection
+  // for that member each time. 50 is plenty: we only need the most
+  // recently followed-up one, and the cron only marks logs followed_up
+  // once per intro.
+  const snap = await db.collection("matchLogs")
+    .where("memberId", "==", memberId)
+    .where("status", "==", "followed_up")
+    .limit(50)
+    .get();
   if (snap.empty) return null;
   const followed = snap.docs
     .map(d => ({ id: d.id, ...d.data() }))
-    .filter(l => l.status === "followed_up")
     .sort((a, b) => (b.followUpSentAt?.toMillis?.() ?? 0) - (a.followUpSentAt?.toMillis?.() ?? 0));
   return followed[0] ?? null;
 }
