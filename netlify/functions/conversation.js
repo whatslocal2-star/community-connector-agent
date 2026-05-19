@@ -1,14 +1,12 @@
 import { loadConversation } from "./lib/db.js";
+import { isAdminAuthorized, unauthorized } from "./lib/adminAuth.js";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "GET") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const token = event.headers.authorization?.replace("Bearer ", "");
-  if (!token || token !== process.env.ADMIN_TOKEN) {
-    return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
-  }
+  if (!isAdminAuthorized(event)) return unauthorized();
 
   const memberId = event.queryStringParameters?.memberId;
   if (!memberId) {

@@ -1,6 +1,7 @@
 import { loadAllMembers, saveMember } from "./lib/db.js";
 import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
+import { isAdminAuthorized, unauthorized } from "./lib/adminAuth.js";
 
 // Admin endpoint:
 // - parse profile.priceRange (string) into priceMin / priceMax numerics
@@ -8,10 +9,7 @@ import { upsertMemberVector } from "./lib/vectorSearch.js";
 // - re-embed so Pinecone metadata picks up the new structured fields
 // Run after deploying the structured-search schema changes.
 export const handler = async (event) => {
-  const token = event.headers.authorization?.replace("Bearer ", "");
-  if (token !== process.env.ADMIN_TOKEN) {
-    return { statusCode: 401, body: "Unauthorized" };
-  }
+  if (!isAdminAuthorized(event)) return unauthorized();
 
   const qs = event.queryStringParameters || {};
   const reembedAll = qs.reembedAll === "1";

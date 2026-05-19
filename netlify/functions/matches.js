@@ -1,15 +1,13 @@
 import { loadAllMembers } from "./lib/db.js";
 import { findSimilarMembers } from "./lib/vectorSearch.js";
+import { isAdminAuthorized, unauthorized } from "./lib/adminAuth.js";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "GET") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  const auth = event.headers.authorization || "";
-  if (auth !== `Bearer ${process.env.ADMIN_TOKEN}`) {
-    return { statusCode: 401, body: "Unauthorized" };
-  }
+  if (!isAdminAuthorized(event)) return unauthorized();
 
   const { memberId, topK = "5" } = event.queryStringParameters || {};
   if (!memberId) {

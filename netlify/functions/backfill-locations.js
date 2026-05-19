@@ -1,11 +1,9 @@
 import { loadAllMembers, saveMember } from "./lib/db.js";
 import { parseGoogleMapsUrl } from "./lib/parseLocation.js";
+import { isAdminAuthorized, unauthorized } from "./lib/adminAuth.js";
 
 export const handler = async (event) => {
-  const token = event.headers.authorization?.replace("Bearer ", "");
-  if (token !== process.env.ADMIN_TOKEN) {
-    return { statusCode: 401, body: "Unauthorized" };
-  }
+  if (!isAdminAuthorized(event)) return unauthorized();
 
   const members = await loadAllMembers(500);
   const needsBackfill = members.filter(

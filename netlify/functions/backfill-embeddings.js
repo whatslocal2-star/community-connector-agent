@@ -1,10 +1,9 @@
 import { loadAllMembers } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
+import { isAdminAuthorized, unauthorized } from "./lib/adminAuth.js";
 
 export const handler = async (event) => {
-  if ((event.headers.authorization || "") !== `Bearer ${process.env.ADMIN_TOKEN}`) {
-    return { statusCode: 401, body: "Unauthorized" };
-  }
+  if (!isAdminAuthorized(event)) return unauthorized();
 
   const members = await loadAllMembers(500);
   const results = { ok: 0, skipped: 0, errors: [] };

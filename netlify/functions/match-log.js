@@ -1,5 +1,6 @@
 import { createMatchLog, loadMatchLogs } from "./lib/matchLog.js";
 import { loadMember } from "./lib/db.js";
+import { isAdminAuthorized } from "./lib/adminAuth.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,8 +13,7 @@ export const handler = async (event) => {
     return { statusCode: 204, headers: corsHeaders, body: "" };
   }
 
-  const token = event.headers.authorization?.replace("Bearer ", "");
-  if (token !== process.env.ADMIN_TOKEN) {
+  if (!isAdminAuthorized(event)) {
     return { statusCode: 401, headers: corsHeaders, body: "Unauthorized" };
   }
 
