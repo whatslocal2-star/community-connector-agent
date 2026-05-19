@@ -217,15 +217,19 @@ export async function searchMembers({ query, filters = {}, excludes = {}, exclud
   let candidates = [];
 
   if (pineconeMatches.length) {
-    const docs = await Promise.all(
-      pineconeMatches.map(async m => {
-        const snap = await db.collection("members").doc(m.id).get();
-        if (!snap.exists) return null;
-        const { history, ...rest } = snap.data();
-        return { id: snap.id, score: m.score, ...rest };
-      })
-    );
-    candidates = docs.filter(Boolean);
+    // Batch into one Firestore RPC instead of N parallel reads.
+    // Sequential RPCs would blow the 10s function budget at topK=200;
+    // even parallel reads pay per-RPC connection overhead and pressure
+    // Firestore's per-instance request cap.
+    const refs = pineconeMatches.map(m => db.collection("members").doc(m.id));
+    const snaps = await db.getAll(...refs);
+    const scoreById = new Map(pineconeMatches.map(m => [m.id, m.score]));
+    candidates = snaps
+      .filter(s => s.exists)
+      .map(s => {
+        const { history, ...rest } = s.data();
+        return { id: s.id, score: scoreById.get(s.id) ?? 0, ...rest };
+      });
   } else {
     const snap = await db.collection("members").orderBy("lastActiveAt", "desc").limit(500).get();
     candidates = snap.docs.map(d => {
