@@ -7,8 +7,11 @@ const corsHeaders = {
 };
 
 function sanitize(member) {
-  const { profile = {}, ...rest } = member;
-  const { phone, ...safeProfile } = profile;
+  const { profile = {}, phone: topPhone, ...rest } = member;
+  // Strip contact PII from public payloads. Business location data
+  // (businessAddress / googleMapsUrl / lat / lng) is intentionally kept —
+  // surfacing local businesses on a map is the whole product.
+  const { phone, email, businessPhone, ...safeProfile } = profile;
   return { ...rest, profile: safeProfile };
 }
 
