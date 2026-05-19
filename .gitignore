@@ -4,3 +4,13 @@
 node_modules/
 firebase.json
 .env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
