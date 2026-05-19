@@ -2,7 +2,8 @@ import OpenAI from "openai";
 import crypto from "crypto";
 import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
-import { loadConversation, loadMember, saveMember } from "./lib/db.js";
+import { loadConversation, loadMember, saveMember, getDb } from "./lib/db.js";
+import { FieldValue } from "firebase-admin/firestore";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
@@ -94,6 +95,23 @@ export const handler = async (event) => {
   }
 
   const replyFrom = toNumber || process.env.TELNYX_FROM_NUMBER;
+
+  // Idempotency: Telnyx retries webhooks on non-2xx and sometimes
+  // duplicates on flaky networks. A second pass through this handler
+  // would re-run GPT, double-append history, and potentially fire
+  // duplicate recommendations. Reserve the event id atomically — if
+  // another instance already saw it, ack OK and bail.
+  const webhookId = body.data?.id || payload?.id;
+  if (webhookId) {
+    try {
+      await getDb().collection("webhookEvents").doc(`telnyx_${webhookId}`).create({
+        source: "telnyx",
+        seenAt: FieldValue.serverTimestamp(),
+      });
+    } catch {
+      return { statusCode: 200, body: "OK (duplicate)" };
+    }
+  }
 
   try {
     const awaiting = await loadAwaitingOutcome(fromNumber);
