@@ -1,4 +1,5 @@
 import { getDb } from "./lib/db.js";
+import { Timestamp } from "firebase-admin/firestore";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,8 +41,12 @@ export const handler = async (event) => {
 
     if (cursor) {
       const ms = parseInt(cursor, 10);
+      // lastActiveAt is stored as a Firestore Timestamp (set via
+      // serverTimestamp()), NOT an ISO string. startAfter must receive
+      // the same type the orderBy field holds, otherwise the cursor
+      // silently misses and the same page repeats forever.
       if (Number.isFinite(ms)) {
-        q = q.startAfter(new Date(ms).toISOString());
+        q = q.startAfter(Timestamp.fromMillis(ms));
       }
     }
 
@@ -69,11 +74,18 @@ export const handler = async (event) => {
     }
 
     const sliced = members.slice(0, max).map(sanitize);
+    // Cursor for next page: smallest lastActiveAt we returned (epoch ms).
+    // Null when fewer rows came back than the page asked for.
+    const last = sliced[sliced.length - 1];
+    const lastActiveMs = last?.lastActiveAt?._seconds != null
+      ? last.lastActiveAt._seconds * 1000 + Math.floor((last.lastActiveAt._nanoseconds ?? 0) / 1e6)
+      : null;
+    const nextCursor = snap.size === fetchLimit && lastActiveMs ? String(lastActiveMs) : null;
 
     return {
       statusCode: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ members: sliced, total: sliced.length }),
+      body: JSON.stringify({ members: sliced, total: sliced.length, nextCursor }),
     };
   } catch (err) {
     console.error("marketplace-members error:", err?.message, err?.stack);
