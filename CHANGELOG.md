@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-06-05 (commerce — Phase A)
+- Built the four commerce endpoints the marketplace already called but that never existed (every call was 404'ing): `sms-send` (outbound Telnyx — makes Uber Direct delivery texts work), `composio-connect` (Composio OAuth → `vendor_settings`), `composio-sync` (Shopify/Square catalog → Supabase `products`, idempotent on `member_id,external_id`), `composio-push-order` (order back into the vendor's store on payment).
+- New shared libs: `lib/composio.js` (`@composio/core` client, `userId=memberId` scoping, `TOOL_SLUGS`, `runTool`) and `lib/supabase.js` (service-role client for the shared `xeno` commerce tables). Deps: `@composio/core`, `@supabase/supabase-js`.
+- Square sync now pulls `ITEM,IMAGE` in one `ListCatalog` call and resolves `item.image_ids[0]` → image URL.
+- `tests/e2e-commerce.js` (+ `npm run test:e2e:commerce`): invokes all four handlers against the real stack; auth-gate + input-validation assertions run creds-free (green), Composio/Supabase/SMS steps skip gracefully until the fresh key + `TEST_MEMBER_ID` are set.
+- Decisions/gaps: chose the new `@composio/core` platform over the legacy `composio-core` mae uses (its key 401s here — fresh key needed). Shopify is the full loop; Square push-back wired-but-unverified; Toast unsupported (no Composio toolkit). Not-yet-done: verify Square `CREATE_ORDER` schema, deactivate `products` removed from source. See `PHASE-A-COMMERCE.md`.
+
 ## 2026-06-05 (cleanup)
 - Removed `lib/syncToProlocaliq.js` and `link-identity.js` — LocalLoop integration dropped; Community Marketplace is the sole public-facing app linked to this connector.
 - Scrubbed all ProLocalIQ/LocalLoop references from CLAUDE.md (file table, env vars, Firestore schema, decision log).

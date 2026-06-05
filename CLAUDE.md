@@ -88,6 +88,12 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/lib/subscriptions.js` | Builds subscription records from captured profile fields |
 | `netlify/functions/lib/events.js` | Event suggestion CRUD for Firestore |
 | `netlify/functions/lib/observability.js` | Sentry + PostHog single entry point: `initObservability` / `trackEvent` / `captureError` / `flushObservability`. No-ops when `SENTRY_DSN`/`POSTHOG_API_KEY` unset. Used by chat/sms + all 3 crons. Serverless: callers must `flushObservability()` before returning |
+| **`netlify/functions/sms-send.js`** | Admin: POST `{to, message}` → outbound transactional SMS via Telnyx (`TELNYX_FROM_NUMBER`). Powers the marketplace Uber Direct delivery texts to buyers (distinct from `sms.js`, which is the inbound Telnyx webhook) |
+| **`netlify/functions/composio-connect.js`** | Admin: POST `{memberId, platform: shopify\|square}` → initiates a Composio OAuth connection (scoped to `userId=memberId`), upserts `composio_platform` + `composio_connection_id` on Supabase `vendor_settings`, returns `{url}` redirect. Backs marketplace `/vendor/integrations` "Connect" |
+| **`netlify/functions/composio-sync.js`** | Admin: POST `{memberId}` → reads connected platform from `vendor_settings`, lists catalog (`SHOPIFY_LIST_ALL_PRODUCTS` / `SQUARE_LIST_CATALOG` incl. images), upserts into Supabase `products` idempotent on `(member_id, external_id)`. Returns `{synced, platform}` |
+| **`netlify/functions/composio-push-order.js`** | Admin: POST `{memberId, order}` → creates the order back in the vendor's store (`SHOPIFY_CREATE_ORDER`; Square wired/unverified). Fired fire-and-forget from marketplace `stripe-webhook` on `payment_intent.succeeded` |
+| `netlify/functions/lib/composio.js` | Composio client singleton (`@composio/core`) + `authConfigIdFor(platform)` (env-mapped) + `TOOL_SLUGS` + `runTool(slug, memberId, args)` (userId-scoped execute, throws on failure). Connections + tool calls scoped by `userId = memberId` so a vendor's store is resolvable from their member id alone |
+| `netlify/functions/lib/supabase.js` | Service-role Supabase client for the shared marketplace `xeno` project — writes the commerce tables (`products`, `vendor_settings`) the Next.js app reads. Connector's own data stays in Firestore |
 | `trigger.config.ts` | Trigger.dev project config |
 | `trigger/harvest-events.ts` | Daily cron job — scrape subscribed channels, detect + reword events |
 | `trigger/followup-intros.ts` | Hourly cron — send 48h follow-up on pending matchLogs, route reply through `extractOutcome` |
@@ -182,6 +188,13 @@ createdAt, updatedAt
 - `FIRECRAWL_API_KEY` — website email scraping
 - `GEMINI_API_KEY` — Gemini 2.0 Flash fallback when structured methods fail
 
+**Commerce — Composio catalog sync + order push-back (marketplace Phase A):**
+- `COMPOSIO_API_KEY` — Composio key for the **new `@composio/core`** platform. ⚠️ the legacy `composio-core` key in `multiagent_mae` is a different platform and returns 401 here — needs a fresh key from the current dashboard
+- `COMPOSIO_SHOPIFY_AUTH_CONFIG_ID` / `COMPOSIO_SQUARE_AUTH_CONFIG_ID` — one auth config per platform (Composio dashboard → Auth Configs)
+- `MARKETPLACE_URL` — where Composio redirects the vendor after they authorize their store
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — shared `xeno` Supabase; `composio-connect/sync/push-order` read `vendor_settings` + write `products`
+- Toast is unsupported (no Composio toolkit) — separate Partner Connect / aggregator track. Full setup + remaining gaps in `PHASE-A-COMMERCE.md`
+
 **Trigger.dev (v4, project `xeno` / `proj_xlqnddtyofcgtvjudspi` under `xen-209f` org):**
 - Deploy: `npx trigger.dev@latest deploy` (must match `@trigger.dev/sdk` v4.x pinned in package.json)
 - Env vars set in Trigger.dev dashboard mirror Netlify: `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER` (for follow-up SMS), `GOOGLE_PLACES_API_KEY` (Oakland harvest + enrichment), `GEMINI_API_KEY` (cross-ref verify). The `post-save-pipeline` task needs firebase + OpenAI + Gemini + Places. Note: `FIRECRAWL_API_KEY` is NOT needed by the task (Firecrawl is only for the `/verify` endpoint).
@@ -190,6 +203,7 @@ createdAt, updatedAt
 - `trigger.config.ts` requires `runtime: "node-22"` and `maxDuration: 600`
 
 ## Recent Decisions
+- **Commerce Phase A (2026-06-05):** built the four endpoints the marketplace already called but that never existed — `sms-send`, `composio-connect`, `composio-sync`, `composio-push-order`. Chose the **new `@composio/core`** SDK (userId-scoped, auth-config model) over the legacy `composio-core` mae runs on. Connections scoped by `userId = memberId` so no per-call handle is stored; `vendor_settings.composio_connection_id` doubles as the "is connected" flag. Shopify is the complete loop; Square sync done + push-back wired-but-unverified; Toast unsupported (no toolkit). `lib/supabase.js` added to write the shared marketplace tables (Firestore stays the connector's own store). Verified live only as far as creds allow — see `tests/e2e-commerce.js` + `PHASE-A-COMMERCE.md`.
 - Enforce flat Firestore schema with merge behavior (no nested profile objects)
 - Agent must confirm platform handles/URLs with user before saving; skip confirmation if already provided
 - Admin dashboard shows location field with fallback for older records
