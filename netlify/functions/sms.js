@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import crypto from "crypto";
-import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
+import { buildSystemPrompt, isOnboarded } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
 import { loadConversation, loadMember, saveMember, getDb } from "./lib/db.js";
 import { FieldValue } from "firebase-admin/firestore";
@@ -9,7 +9,7 @@ import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
-import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
+import { shouldRecommend, makeFirstRecommendations, runConnectorSearch } from "./lib/recommend.js";
 import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -42,11 +42,6 @@ function verifyTelnyxSignature(event) {
     return false;
   }
 }
-
-const SMS_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
-  "- Keep responses SHORT and conversational — like a friendly text exchange",
-  "- Keep responses SHORT — this is SMS, 1-3 sentences max"
-);
 
 async function sendSms(to, from, text) {
   const res = await fetch("https://api.telnyx.com/v2/messages", {
@@ -143,14 +138,19 @@ export const handler = async (event) => {
       history = history.slice(history.length - MAX_HISTORY);
     }
 
+    // Pick the prompt from the member's current profile: onboarding interview
+    // until first recs fire, connector mode after.
+    const existing = await loadMember(fromNumber);
+    const connectorMode = isOnboarded(existing?.profile);
+
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 300,
-      messages: [{ role: "system", content: SMS_SYSTEM_PROMPT }, ...history],
+      messages: [{ role: "system", content: buildSystemPrompt(existing?.profile, { sms: true }) }, ...history],
       response_format: { type: "json_object" },
     });
 
-    const { reply, profileUpdate } = parseCompletion(completion);
+    const { reply, profileUpdate, searchQuery } = parseCompletion(completion);
     let replyText = reply || "Sorry, something went wrong. Please try again.";
 
     let normalizedUpdate = profileUpdate;
@@ -171,7 +171,17 @@ export const handler = async (event) => {
       if (member?.profile) {
         await upsertMemberVector(fromNumber, member.profile);
 
-        if (shouldRecommend(member.profile)) {
+        if (connectorMode) {
+          if (searchQuery) {
+            try {
+              const recs = await runConnectorSearch(fromNumber, member.profile, searchQuery, { channel: "sms" });
+              if (recs?.paragraph) replyText = `${replyText}\n\n${recs.paragraph}`;
+              else replyText = `${replyText}\n\nCouldn't find a match for that just yet — I'll keep an eye out as new folks join!`;
+            } catch (err) {
+              console.error("runConnectorSearch error:", err);
+            }
+          }
+        } else if (shouldRecommend(member.profile)) {
           try {
             const recs = await makeFirstRecommendations(fromNumber, member.profile, { channel: "sms" });
             if (recs?.paragraph) {

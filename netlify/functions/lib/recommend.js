@@ -105,6 +105,96 @@ function reasonFor(memberProfile, candidate) {
   return bits.join(" · ") || "semantic match on profile";
 }
 
+const CONNECTOR_BLURB_PROMPT = `You are a warm, plugged-in local community connector introducing a member to real people/places we just found for them.
+
+You are given: the member, what they asked for, and 1-3 REAL candidates from our community directory. Write a single conversational paragraph (~3-5 sentences) that:
+- directly answers their request, weaving in each candidate's real name and a one-line reason they're a great fit
+- feels like a friend making a warm intro, not a directory listing
+- uses ONLY the candidate details provided — never invent extra facts, handles, or names
+- ends with a low-pressure prompt like "want me to make an intro?"
+
+Return JSON: { "paragraph": "..." }`;
+
+async function writeConnectorParagraph(memberProfile, request, candidates) {
+  if (!candidates.length) return null;
+  try {
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 350,
+      messages: [
+        { role: "system", content: CONNECTOR_BLURB_PROMPT },
+        {
+          role: "user",
+          content: JSON.stringify({
+            member: {
+              name: memberProfile.name,
+              memberType: memberProfile.memberType,
+              city: memberProfile.city,
+              neighborhood: memberProfile.neighborhood,
+            },
+            request,
+            candidates: candidates.map(c => ({
+              name: c.profile?.name,
+              memberType: c.profile?.memberType,
+              category: c.profile?.businessCategory || c.profile?.category,
+              vibe: c.profile?.vibe,
+              description: c.profile?.businessDescription || c.profile?.approvedBlurb,
+              neighborhood: c.profile?.neighborhood,
+              city: c.profile?.city,
+              matchedOn: c.matchedOn,
+            })),
+          }),
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    return parsed.paragraph || null;
+  } catch (err) {
+    console.error("writeConnectorParagraph error:", err);
+    return null;
+  }
+}
+
+// Connector-mode conversational search. Runs a real directory search for the
+// member's natural-language request, writes a warm intro blurb (2nd LLM pass),
+// and logs a matchLog per candidate so the self-improving loop keeps learning.
+// Returns { paragraph, logs } or null when nothing was found.
+export async function runConnectorSearch(memberId, memberProfile, searchQuery, { channel = "web", limit = 3 } = {}) {
+  if (!searchQuery) return null;
+
+  const { results } = await searchMembers({
+    query: searchQuery,
+    excludeIds: [memberId],
+    limit,
+    parseIntent: true,
+  });
+
+  const candidates = results.filter(r => r.id !== memberId).slice(0, limit);
+  if (!candidates.length) return null;
+
+  const paragraph = await writeConnectorParagraph(memberProfile, searchQuery, candidates);
+
+  const logs = [];
+  for (const c of candidates) {
+    try {
+      const id = await createMatchLog({
+        memberId,
+        memberName: memberProfile.name ?? null,
+        matchedMemberId: c.id,
+        matchedMemberName: c.profile?.name ?? null,
+        reason: `connector search: "${searchQuery}"${c.matchedOn?.length ? ` · ${c.matchedOn.join(", ")}` : ""}`,
+        channel,
+      });
+      logs.push({ id, matchedMemberId: c.id, name: c.profile?.name });
+    } catch (err) {
+      console.error("createMatchLog error:", err);
+    }
+  }
+
+  return { paragraph, logs };
+}
+
 // Run a first-time recommendation round for a member.
 // Returns { paragraph, logs: [{id, matchedMemberId, name}] } or null.
 export async function makeFirstRecommendations(memberId, memberProfile, { channel = "web", limit = 3 } = {}) {

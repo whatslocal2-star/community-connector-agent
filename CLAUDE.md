@@ -10,13 +10,21 @@ This project serves as the **signup + data layer** for the Community Marketplace
 **Request flow (per chat turn):**
 1. User message arrives (web POST to `/functions/chat` or Telnyx webhook to `/functions/sms`)
 2. **Outcome short-circuit:** if this member has a matchLog with `status:"followed_up"` (loadAwaitingOutcome), treat the incoming message as feedback on a past intro — route through `extractOutcome` (GPT → structured signal), call `recordOutcome`, merge any `implicit_profile_updates` into the profile, re-embed, send a thank-you ack, and return. Skip normal LLM turn.
-3. Otherwise: load conversation history from Firestore by `sessionId` (web) or phone number (SMS)
-4. Append message → call OpenAI `gpt-4o-mini` with system prompt + history, `response_format: json_object`
-5. Parse `{ reply, profileUpdate }` from response
-6. Save profile update + embed to Pinecone
-7. **Recommendation step:** if `shouldRecommend(profile)` returns true (name + memberType + ≥2 substantive fields, `firstRecsMadeAt` unset), run `makeFirstRecommendations` — search top 3 via `searchMembers({parseIntent:false})` excluding self, write a matchLog per candidate, GPT-write a natural blurb, append to reply, set `firstRecsMadeAt`. One-shot per member.
-8. Post-save pipeline (fire-and-forget): subscriptions, cross-reference verification (Gemini, when ≥2 contact channels captured), enrichment, prolocaliq sync
-9. Save final reply + history; return to client
+3. Otherwise: load the member doc + conversation history from Firestore by `sessionId` (web) or phone number (SMS)
+4. **Mode select:** `buildSystemPrompt(profile, {sms})` returns the onboarding interview prompt OR the connector prompt based on `isOnboarded(profile)` (true once `firstRecsMadeAt` is set). See "Two personality modes" below.
+5. Append message → call OpenAI `gpt-4o-mini` with the chosen system prompt + history, `response_format: json_object`
+6. Parse `{ reply, profileUpdate, searchQuery }` from response (`searchQuery` only ever populated in connector mode)
+7. Save profile update + embed to Pinecone
+8. **Recommendation step (mode-dependent):**
+   - *Onboarding mode:* if `shouldRecommend(profile)` (name + memberType + ≥2 substantive fields, `firstRecsMadeAt` unset), run `makeFirstRecommendations` — search top 3 via `searchMembers({parseIntent:false})` excluding self, write a matchLog per candidate, GPT-write a natural blurb, append to reply, set `firstRecsMadeAt`. One-shot per member — this is the LAST onboarding turn; the next turn flips to connector mode.
+   - *Connector mode:* if the model emitted a `searchQuery`, run `runConnectorSearch` — real `searchMembers({parseIntent:true})` over the directory, a matchLog per candidate (reason = the query + matchedOn breadcrumbs), 2nd GPT pass writes a warm intro blurb, appended to reply. Graceful "couldn't find a match yet" fallback when empty. No searchQuery = ordinary connector chat.
+9. Post-save pipeline (fire-and-forget): subscriptions, cross-reference verification (Gemini, when ≥2 contact channels captured), enrichment, prolocaliq sync
+10. Save final reply + history; return to client
+
+**Two personality modes (`lib/systemPrompt.js`):**
+- **Onboarding mode** (`ONBOARDING_PROMPT`) — warm neighbor doing a guided interview; aggressive structured data capture. Used until first recs fire.
+- **Connector mode** (`CONNECTOR_PROMPT`) — "plugged-in local friend who knows everyone." Helps the member discover/connect via conversational search. **Never invents names** — when a connection would help it emits a `searchQuery` and the server fetches/introduces REAL matches in a 2nd pass. Still captures profile updates so the profile keeps enriching for life.
+- Both share `SCHEMA_RULES` (flat schema + canonical fields + capture rules). `buildSystemPrompt(profile, {sms})` picks the mode and appends an SMS-brevity directive when `sms:true`. `SYSTEM_PROMPT` is kept as a back-compat alias for `ONBOARDING_PROMPT`.
 
 **The self-improving loop (core thesis):**
 Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `followup-intros` cron sends "how'd it go?" → member replies → `extractOutcome` turns NL into structured signal + implicit profile updates → re-embed → next recommendations are smarter. Every completed matchLog is a labeled training example for a future re-ranker.
@@ -50,7 +58,7 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/search.js` | Public unified search — GET `?q=...` or POST `{query, filters, excludes}` — same function for search bar + chat agent |
 | `netlify/functions/lib/search.js` | Hybrid search: GPT intent parse → Pinecone semantic + in-memory hard filters |
 | `netlify/functions/lib/searchIntent.js` | GPT NL → `{semantic, filters, excludes, intent}` parser |
-| `netlify/functions/lib/recommend.js` | First-recommendation pipeline: search → top 3 → matchLog per candidate → natural blurb appended to reply |
+| `netlify/functions/lib/recommend.js` | `makeFirstRecommendations` (onboarding one-shot: search → top 3 → matchLog per candidate → blurb) + `runConnectorSearch` (connector-mode conversational search: NL query → real matches → matchLog + 2nd-pass intro blurb) |
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
 | `netlify/functions/backfill-structured.js` | Admin: parse `priceRange` → `priceMin`/`priceMax`, normalize `pricePerProduct`, re-embed (Pinecone metadata refresh). `?reembedAll=1` to force re-embed every member |
 | `netlify/functions/lib/priceParse.js` | `parsePriceRange("$10–$50") → {priceMin:10, priceMax:50}` + `normalizePricePerProduct()` |
@@ -68,7 +76,7 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/lib/extractOutcome.js` | GPT outcome extractor — turns NL feedback into structured signal |
 | `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
 | `netlify/functions/lib/taxonomy.js` | Canonical category/subcategory taxonomy + `TAXONOMY_PROMPT` for system prompt |
-| `netlify/functions/lib/systemPrompt.js` | Shared onboarding prompt (flow + schema rules) |
+| `netlify/functions/lib/systemPrompt.js` | Dual-mode prompts: `ONBOARDING_PROMPT` (interview) + `CONNECTOR_PROMPT` (post-onboarding) sharing `SCHEMA_RULES`; `isOnboarded()` + `buildSystemPrompt(profile,{sms})` mode selector |
 | `netlify/functions/lib/db.js` | Firestore lazy init + member/subscription CRUD |
 | `netlify/functions/lib/vectorSearch.js` | OpenAI embedding + Pinecone upsert/query |
 | `netlify/functions/lib/profileTool.js` | JSON parse helper with fallback |
@@ -198,6 +206,7 @@ createdAt, updatedAt
 - **Trigger.dev v4 migration done** (was v3); import is `@trigger.dev/sdk` (not `/v3`), runtime `node-22`, project ref `proj_xlqnddtyofcgtvjudspi`. Pin the SDK exactly to whatever v4.x the CLI ships (caret ranges fail "Invalid Version").
 - **Ownership verification engine ported from marketplace** — `lib/verify.js` is the single source of truth. Both apps call `/verify` here. Methods: phone (Google Places API), website_email (Firecrawl scrape + regex), instagram (handle match), gemini (Gemini 2.0 Flash with grounded search) as catch-all. Structured methods escalate to Gemini automatically on failure. Saves `profile.ownershipVerification` on success.
 - **Structured search is live** — manifesto's "better than Google Maps" promise. Onboarding captures `pricePerProduct: [{name, price}]`, `amenities[]`, `atmosphere[]`, and booleans (acceptsEBT, openLate, wheelchairAccessible, sportsBar, favoriteTeams, veganOptions, etc.). `priceRange` strings auto-parse to `priceMin`/`priceMax` numerics in chat/sms post-save. Pinecone metadata now carries every filterable field — hard filters run server-side (`$lte` / `$in` / `$nin`) instead of in-memory on top-K. Each search result returns `matchedOn[]` breadcrumbs (e.g. `["buzz cut $12 ≤ $15", "tv ✓"]`). Per-product price gate: when a query carries `product` + `priceMax`, the business must offer a semantically-matching item at-or-under the cap. 81 assertions pass: 38 unit (`npm test`) + 43 e2e (`npm run test:e2e`).
+- **Onboarding vs connector personality split is live** — the monolithic `SYSTEM_PROMPT` is now two prompts in `lib/systemPrompt.js`: `ONBOARDING_PROMPT` (warm guided interview) and `CONNECTOR_PROMPT` (post-onboarding "friend who knows everyone"). `buildSystemPrompt(profile,{sms})` selects per-turn via `isOnboarded(profile)` (gated on `firstRecsMadeAt`). Connector mode is forbidden from inventing members — it emits a `searchQuery`, the server runs a real directory search (`runConnectorSearch`), logs matchLogs, and a 2nd GPT pass writes the intro. Conversational recommendation engine is now live, and every connector intro is another labeled matchLog feeding the self-improving loop. chat.js + sms.js both load the member up front to pick the mode.
 
 ## Production TODO
 - After next deploy, run `/backfill-structured?reembedAll=1` once to migrate existing members and refresh their Pinecone metadata with the expanded schema. Idempotent; subsequent runs can omit `?reembedAll=1`.

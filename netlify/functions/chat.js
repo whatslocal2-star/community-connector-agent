@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { SYSTEM_PROMPT } from "./lib/systemPrompt.js";
+import { buildSystemPrompt, isOnboarded } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
 import { saveMember, loadMember, saveSubscriptions } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
@@ -9,7 +9,7 @@ import { buildSubscriptionsFromProfile, hasNewSubscriptionData } from "./lib/sub
 import { parseGoogleMapsUrl } from "./lib/parseLocation.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
-import { shouldRecommend, makeFirstRecommendations } from "./lib/recommend.js";
+import { shouldRecommend, makeFirstRecommendations, runConnectorSearch } from "./lib/recommend.js";
 import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
 
@@ -81,14 +81,19 @@ export const handler = async (event) => {
       }
     }
 
+    // Pick the prompt for this turn from the member's CURRENT profile:
+    // onboarding interview until first recs fire, connector mode after.
+    const existing = await loadMember(sessionId);
+    const connectorMode = isOnboarded(existing?.profile);
+
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 512,
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...cappedMessages],
+      messages: [{ role: "system", content: buildSystemPrompt(existing?.profile, { sms: false }) }, ...cappedMessages],
       response_format: { type: "json_object" },
     });
 
-    const { reply, profileUpdate } = parseCompletion(completion);
+    const { reply, profileUpdate, searchQuery } = parseCompletion(completion);
     let finalReply = reply;
 
     {
@@ -110,7 +115,19 @@ export const handler = async (event) => {
         if (member?.profile) {
           await upsertMemberVector(sessionId, member.profile);
 
-          if (shouldRecommend(member.profile)) {
+          if (connectorMode) {
+            // Connector mode: only search when the model asked us to. Real
+            // matches fetched + introduced in a 2nd pass; logged for learning.
+            if (searchQuery) {
+              try {
+                const recs = await runConnectorSearch(sessionId, member.profile, searchQuery, { channel: "web" });
+                if (recs?.paragraph) finalReply = `${reply}\n\n${recs.paragraph}`;
+                else finalReply = `${reply}\n\nHmm, I couldn't find a great match in our community for that just yet — but new folks are joining all the time, so I'll keep an eye out. Anything else I can help you find?`;
+              } catch (err) {
+                console.error("runConnectorSearch error:", err);
+              }
+            }
+          } else if (shouldRecommend(member.profile)) {
             try {
               const recs = await makeFirstRecommendations(sessionId, member.profile, { channel: "web" });
               if (recs?.paragraph) {
