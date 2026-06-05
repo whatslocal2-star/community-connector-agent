@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-06-05 (docs)
+- LEARNINGS.md: added an implementation-status mapping of the layered-intelligence vision to what's shipped; documented complementary matching as the structural fix for the re-ranker's motivating problem; corrected stale tech-stack notes (embedding model is text-embedding-3-small; offers/needs namespaces).
+
 ## 2026-06-05 (intelligence)
 - Convener outcome-logging: `match-log` accepts `{matchLogId, verdict}` to mark an intro worked/didn't; admin Convener panel lists recent intros with 👍/👎 controls. Human convener labels outcomes firsthand → fast-tracks re-ranker training data.
 - Level 1 in-context learning: `loadSuccessfulMatches` injects positive past intros into the first-recs + connector blurb prompts so recs learn from what worked.

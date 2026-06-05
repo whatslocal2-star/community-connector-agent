@@ -4,6 +4,25 @@ Key learnings from deep architectural and strategic thinking sessions. Living do
 
 ---
 
+## Implementation Status (June 2026)
+
+Mapping the layered-intelligence vision to what's actually shipped. The original stack (below) framed intelligence as **LLM reasoning + a learned re-ranker on top of raw semantic similarity**. Three of those layers are now live — plus one layer that wasn't in the original plan but turned out to be a better answer to its motivating problem.
+
+| Layer | Status | What it is in the code |
+|-------|--------|------------------------|
+| Semantic similarity | ✅ live | `text-embedding-3-small` → Pinecone default namespace (`vectorSearch.js`) |
+| **Complementary matching** | ✅ live (June 2026) | Separate `offers` / `needs` Pinecone namespaces; `queryComplementary` matches one member's needs against another's offers. **Not in the original stack** — a *structural* fix for the gap the re-ranker was meant to learn (see below). |
+| Level 1 — in-context learning (LLM reasoning) | ✅ live (June 2026) | `loadSuccessfulMatches` injects positive past intros into the recommendation/blurb prompts (`recommend.js`) |
+| Outcome capture / labeling | ✅ live | matchLogs + 48h followup cron + `extractOutcome`; **convener outcome-logging** lets the human convener label firsthand to accrue data fast |
+| Level 2 — learned re-ranker | ⬜ data-gated (~50 outcomes) | scikit-learn model on `(similarity, shared_fields, types, outcome)`, offline train job, scoring hook in `recommend.js` |
+| Level 3 — embedding fine-tuning | ⬜ ~200 labeled pairs | contrastive learning on success/fail pairs |
+| Level 4 — DSPy prompt optimization | ⬜ not started | auto-rewrite the recommendation prompt from labeled examples |
+
+### The key insight: complementary matching solves the re-ranker's motivating problem structurally
+The May-7 session named the gap precisely: *"Pinecone similarity is semantic distance alone — it doesn't know a 'housing justice organizer' and a 'muralist who does community murals' are a great match even if their embeddings aren't super close."* The plan was to have the **re-ranker learn** that from outcomes. Instead, complementary matching solves it **directly**: the muralist's `offers` vector ("community murals") sits close to the organizer's `needs` vector ("artists to activate space"), so they match even though their full-profile embeddings are far apart. The learned re-ranker is still worth building (it captures community-specific quality the namespaces can't), but the highest-value version of this problem is already addressed.
+
+---
+
 ## The Core Architecture
 
 ### The Three-Layer Intelligence Stack
@@ -233,13 +252,15 @@ Core concept to understand: **the attention mechanism** — why modern embedding
 
 ## Current Tech Stack Notes
 
-- **Embedding model**: `text-embedding-ada-002` — 1536 dims, reliable, cheap, good for English and major languages
+- **Embedding model**: `text-embedding-3-small` (1536 dims) — what's actually deployed (the ada-002 references elsewhere in this doc are historical/aspirational from earlier sessions)
 - **Upgrade path**: `text-embedding-3-large` (3072 dims, better nuance) when profiles are rich enough to benefit
 - **Global path**: `LaBSE` (109 languages) or `multilingual-e5-large` for cross-lingual meaning proximity
-- **Vector DB**: Pinecone — handles billions of vectors, millisecond search, well within needs at 100K+ users
-- **Conversation**: GPT-4o — world class for major languages, covers ~85-90% of world population, culturally fluent not just translating
-- **Re-ranker**: not yet built — build after ~50 real outcome signals accumulate
+- **Vector DB**: Pinecone — three namespaces: default (full-profile), `offers`, `needs`. Handles billions of vectors, millisecond search, well within needs at 100K+ users
+- **Conversation**: `gpt-4o-mini` for onboarding/connector turns + blurb writing (cheap, JSON mode)
+- **Complementary matching**: ✅ live — `offers`/`needs` namespaces + `queryComplementary` (`vectorSearch.js`)
+- **In-context learning (Level 1)**: ✅ live — `loadSuccessfulMatches` → recommendation prompts
+- **Re-ranker (Level 2)**: not yet built — data-gated on ~50 real outcomes; convener outcome-logging accelerates accrual
 
 ---
 
-*Last updated: May 2026*
+*Last updated: June 2026 — added implementation-status mapping; complementary matching + Level 1 in-context learning + convener outcome-logging now live.*
