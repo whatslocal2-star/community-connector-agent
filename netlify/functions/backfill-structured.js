@@ -6,15 +6,26 @@ import { isAdminAuthorized, unauthorized } from "./lib/adminAuth.js";
 // Admin endpoint:
 // - parse profile.priceRange (string) into priceMin / priceMax numerics
 // - normalize pricePerProduct entries
-// - re-embed so Pinecone metadata picks up the new structured fields
+// - re-embed so Pinecone metadata + the offers/needs namespaces pick up the
+//   new structured fields
 // Run after deploying the structured-search schema changes.
+//
+// PAGINATED so it fits the Netlify function timeout: pass ?offset=&limit= and
+// loop until the response's `nextOffset` is null. Ordering is by doc id (stable
+// across calls — the in-loop saves bump lastActiveAt, which would otherwise
+// shuffle the page boundaries).
 export const handler = async (event) => {
   if (!isAdminAuthorized(event)) return unauthorized();
 
   const qs = event.queryStringParameters || {};
   const reembedAll = qs.reembedAll === "1";
+  const offset = Math.max(0, parseInt(qs.offset || "0", 10) || 0);
+  const limit = Math.min(Math.max(parseInt(qs.limit || "25", 10) || 25, 1), 200);
 
-  const members = await loadAllMembers(2000);
+  const all = await loadAllMembers(2000);
+  all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const members = all.slice(offset, offset + limit);
+  const nextOffset = offset + limit < all.length ? offset + limit : null;
   const results = [];
 
   for (const m of members) {
@@ -53,6 +64,14 @@ export const handler = async (event) => {
   return {
     statusCode: 200,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scanned: members.length, updated: results.length, results }),
+    body: JSON.stringify({
+      total: all.length,
+      offset,
+      limit,
+      processed: members.length,
+      updated: results.length,
+      nextOffset,
+      results,
+    }),
   };
 };

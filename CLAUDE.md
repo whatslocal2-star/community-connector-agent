@@ -61,7 +61,7 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/lib/recommend.js` | `makeFirstRecommendations` (onboarding one-shot: COMPLEMENTARY match → semantic fallback → top 3 → matchLog per candidate → complementarity-aware blurb) + `findComplementaryMatches` (needs↔offers bidirectional match) + `findCollaboratorsForObjective` (free-text objective → who offers what it needs; powers the convener tool) + `runConnectorSearch` (connector-mode conversational search: NL query → real matches → matchLog + 2nd-pass intro blurb) |
 | `netlify/functions/convener-search.js` | Admin: POST `{objective}` (free-text event/goal → complementary collaborators) or `{memberId}` (complementary matches for a member). Backs the admin.html Convener panel; pairs with `/match-log` to log intros. |
 | `netlify/functions/backfill-locations.js` | Admin: parse googleMapsUrl → lat/lng for members missing coords |
-| `netlify/functions/backfill-structured.js` | Admin: parse `priceRange` → `priceMin`/`priceMax`, normalize `pricePerProduct`, re-embed (Pinecone metadata refresh). `?reembedAll=1` to force re-embed every member |
+| `netlify/functions/backfill-structured.js` | Admin: parse `priceRange` → `priceMin`/`priceMax`, normalize `pricePerProduct`, re-embed (Pinecone metadata + `offers`/`needs` namespaces refresh). `?reembedAll=1` to force re-embed every member. **Paginated** (`?offset=&limit=`, ordered by doc id) — loop until `nextOffset` is null; chunking avoids the function timeout that made the full run fail before |
 | `netlify/functions/lib/priceParse.js` | `parsePriceRange("$10–$50") → {priceMin:10, priceMax:50}` + `normalizePricePerProduct()` |
 | `tests/search.test.js` | 38 unit tests for parser + filter logic. Run `npm test` |
 | `tests/e2e-search.js` | Real-stack proof of structured search (`buzz cut under $15 Chinatown`). Run `npm run test:e2e:search` |
@@ -228,7 +228,8 @@ createdAt, updatedAt
 - ✅ Personality split, Trigger post-save pipeline, complementary matching, ProLocalIQ removal — all merged to `main` and pushed (Netlify auto-deploys).
 - ✅ Trigger.dev: all 4 tasks deployed (version `20260605.5`); `post-save-pipeline` is live.
 - ✅ Env: `TRIGGER_SECRET_KEY` set in Netlify; `GEMINI_API_KEY` set in Trigger.dev.
-- ⬜ **Run once after the current Netlify deploy goes green:** `/backfill-structured?reembedAll=1` — refreshes Pinecone metadata with the expanded schema AND seeds the new `offers` / `needs` namespaces (via fallback synthesis in `buildOffersText`/`buildNeedsText`) so complementary matching covers pre-existing members. Idempotent; later runs can omit `?reembedAll=1`.
+- ✅ Prod deployed 2026-06-05 (`netlify deploy --prod`, deployId `6a22a143…`) — all accumulated work now live. Deploys are manual CLI (`netlify deploy --prod`), NOT git-triggered; last prior deploy was 2026-05-18.
+- ⬜ **Run the backfill (paginated):** loop `/backfill-structured?reembedAll=1&limit=25&offset=N` until `nextOffset` is null. Seeds the `offers`/`needs` namespaces + refreshes metadata for ~400 existing members. Needs `ADMIN_TOKEN` bearer. Endpoint is now resumable — the unpaginated full run used to time out (~400 members × 3 embeddings).
 - ⬜ Smoke test: one web chat turn revealing a business → confirm a green `post-save-pipeline` run in the Trigger dashboard + `ownershipVerification` written to the member doc.
 
 ### Observability (PR #1 — `feat/observability-stack`)
