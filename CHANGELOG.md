@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-05 (deploy + config)
+- Deployed all accumulated work to prod (Netlify manual CLI + Trigger v20260605.6); prod had drifted to May 18.
+- Ran the paginated backfill — all 415 members re-embedded into the offers/needs namespaces; live convener search verified in prod.
+- Set Netlify env: TRIGGER_SECRET_KEY, SENTRY_DSN, POSTHOG_API_KEY (phc_), POSTHOG_HOST. Fixed .env.local mislabeled phx_ key (→ POSTHOG_PERSONAL_API_KEY). Made backfill-structured paginated/resumable to avoid the function timeout.
+
 ## 2026-06-05 (observability)
 - Grafted the server-side observability stack (Sentry + PostHog) from the stranded feat/observability-stack branch onto current chat.js/sms.js + all 3 crons via lib/observability.js. Emits profile_completed / first_recs_sent / outcome_received (web+sms) + cron run events; no-ops without env vars. Chose to graft rather than merge the stale branch (26 commits behind) and skipped the processTurn refactor for now (too risky without runnable integration tests on the two core handlers). Fixed the branch's stale recCount (recs.matches -> recs.logs). Deps: @sentry/node, posthog-node.
 

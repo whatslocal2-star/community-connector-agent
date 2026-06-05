@@ -226,22 +226,20 @@ createdAt, updatedAt
 ## Production TODO
 
 ### Deploy status (2026-06-05)
-- ✅ Personality split, Trigger post-save pipeline, complementary matching, ProLocalIQ removal — all merged to `main` and pushed (Netlify auto-deploys).
-- ✅ Trigger.dev: all 4 tasks deployed (version `20260605.5`); `post-save-pipeline` is live.
-- ✅ Env: `TRIGGER_SECRET_KEY` set in Netlify; `GEMINI_API_KEY` set in Trigger.dev.
-- ✅ Prod deployed 2026-06-05 (`netlify deploy --prod`, deployId `6a22a143…`) — all accumulated work now live. Deploys are manual CLI (`netlify deploy --prod`), NOT git-triggered; last prior deploy was 2026-05-18.
-- ⬜ **Run the backfill (paginated):** loop `/backfill-structured?reembedAll=1&limit=25&offset=N` until `nextOffset` is null. Seeds the `offers`/`needs` namespaces + refreshes metadata for ~400 existing members. Needs `ADMIN_TOKEN` bearer. Endpoint is now resumable — the unpaginated full run used to time out (~400 members × 3 embeddings).
-- ⬜ Smoke test: one web chat turn revealing a business → confirm a green `post-save-pipeline` run in the Trigger dashboard + `ownershipVerification` written to the member doc.
+- ✅ All session work live: personality split, Trigger post-save pipeline, complementary matching, convener tool + outcome-logging, Level 1 in-context learning, observability, ProLocalIQ removal — committed, pushed, and deployed.
+- ✅ **Deploys are manual CLI**, NOT git-triggered: `netlify deploy --prod` (publish="." + esbuild functions) and `npx trigger.dev deploy`. Prod had drifted to 2026-05-18 before this session's redeploys. Latest: Netlify multiple deploys 2026-06-05; Trigger `20260605.6`.
+- ✅ Env set in Netlify: `TRIGGER_SECRET_KEY`, `SENTRY_DSN`, `POSTHOG_API_KEY` (`phc_`), `POSTHOG_HOST`. In Trigger.dev: `GEMINI_API_KEY`.
+- ✅ **Backfill done** — all 415 members re-embedded across the `offers`/`needs` namespaces (paginated loop). Live convener search verified returning real complementary matches in prod.
+- ⬜ Set `SENTRY_DSN` / `POSTHOG_API_KEY` (`phc_`) / `POSTHOG_HOST` in the **Trigger.dev dashboard** (project `xeno`) so the 3 crons emit too — Netlify side already done.
+- ⬜ Rotate `ADMIN_TOKEN` (was pasted in plaintext in a chat session; it's a Netlify secret, unreadable back) → set fresh value + redeploy.
+- ⬜ In PostHog: build the funnel `profile_completed → first_recs_sent → outcome_received` (by `channel`/`memberType`) — the self-improving-loop dashboard + the counter for when ~50 outcomes unlock the re-ranker.
 
-### Observability (✅ instrumentation merged to main 2026-06-05; config pending)
-The Sentry + PostHog instrumentation is now grafted into the current `chat.js`/`sms.js` + all 3 crons via `lib/observability.js` (no-ops cleanly when env vars unset). Events: `outcome_received`, `profile_completed`, `first_recs_sent` (web+sms), `followup_sent`/`followup_run`, `event_harvest_run`, `oakland_harvest_run`. Remaining is config + verification:
-- [ ] Set `SENTRY_DSN` in Netlify env vars (Site → Environment variables)
-- [ ] Set `POSTHOG_API_KEY` (+ optional `POSTHOG_HOST`) in Netlify env vars
-- [ ] Set the same two vars in Trigger.dev dashboard (project `xeno`) so the 3 crons emit too
-- [ ] Redeploy (`netlify deploy --prod` + `npx trigger.dev deploy`) after setting the vars — code no-ops until they're present
-- [ ] After deploy: complete one web onboarding + one SMS onboarding; confirm `profile_completed` + `first_recs_sent` appear in PostHog with correct `channel`
-- [ ] After deploy: trigger one cron manually from Trigger.dev dashboard; confirm `event_harvest_run` / `oakland_harvest_run` / `followup_run` events land in PostHog
-- [ ] In PostHog: build the funnel `profile_completed → first_recs_sent → outcome_received`, broken down by `channel` and `memberType` — that's the core self-improving-loop dashboard
+### Observability (✅ live on web; crons pending Trigger env vars)
+Sentry + PostHog instrumentation grafted into the current `chat.js`/`sms.js` + all 3 crons via `lib/observability.js` (no-ops cleanly when env vars unset). Events: `outcome_received`, `profile_completed`, `first_recs_sent` (web+sms), `followup_sent`/`followup_run`, `event_harvest_run`, `oakland_harvest_run`. Errors → Sentry via `captureError`. All callers `flushObservability()` before returning (serverless). The connector + marketplace **share one PostHog project** (`phc_onZf…`), so funnels stitch across both apps.
+- ✅ Code deployed; Netlify env vars set (`SENTRY_DSN`/`POSTHOG_API_KEY`/`POSTHOG_HOST`) → web (chat/sms) emits now.
+- ⚠️ Use the `phc_` ingest key for `POSTHOG_API_KEY`, NOT the `phx_` personal key. (The connector `.env.local` had it mislabeled; renamed to `POSTHOG_PERSONAL_API_KEY` so the `phc_` from `.env` wins locally.)
+- [ ] Set `SENTRY_DSN` / `POSTHOG_API_KEY` (`phc_`) / `POSTHOG_HOST` in Trigger.dev dashboard (project `xeno`) so the 3 crons emit. No redeploy needed after — picked up on next run.
+- [ ] Verify in PostHog: one web + one SMS onboarding produce `profile_completed` + `first_recs_sent`; a manual cron run produces its `*_run` event.
 
 ### Marketplace observability (separate repo: `/Users/xen/Desktop/dev/community-marketplace`)
 - [ ] Add PostHog **browser** SDK to the Next.js app → visitor analytics, geo, referrer, page views, session replay
