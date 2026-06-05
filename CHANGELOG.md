@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-05 (cleanup)
+- Removed `lib/syncToProlocaliq.js` and `link-identity.js` — LocalLoop integration dropped; Community Marketplace is the sole public-facing app linked to this connector.
+- Scrubbed all ProLocalIQ/LocalLoop references from CLAUDE.md (file table, env vars, Firestore schema, decision log).
+
 ## 2026-06-05 (deploy + config)
 - Deployed all accumulated work to prod (Netlify manual CLI + Trigger v20260605.6); prod had drifted to May 18.
 - Ran the paginated backfill — all 415 members re-embedded into the offers/needs namespaces; live convener search verified in prod.

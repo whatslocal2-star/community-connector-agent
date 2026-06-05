@@ -4,7 +4,7 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-export const VERIFICATION_METHODS = ["phone", "website_email", "instagram", "gemini"];
+export const VERIFICATION_METHODS = ["phone", "google_maps", "website_email", "instagram", "gemini"];
 
 // ─── Google Places API ───────────────────────────────────────────────────────
 
@@ -22,18 +22,56 @@ function extractPlaceSearchQuery(url) {
   }
 }
 
-async function fetchPlacePhone(googleMapsUrl) {
+// A raw Place ID (e.g. "ChIJ...") — Places API resource id, not a URL.
+function extractPlaceId(input) {
+  const s = String(input || "").trim();
+  if (/^ChIJ[\w-]+$/.test(s)) return s;
+  // Some Maps URLs embed the place id as ...!1s0x...:0x... or ?place_id=...
+  try {
+    const u = new URL(s);
+    const pid = u.searchParams.get("place_id");
+    if (pid) return pid;
+  } catch {
+    /* not a URL */
+  }
+  return null;
+}
+
+// Resolve a Maps URL, Place ID, or free-text query to a single place's
+// identifying fields via the Places API. Returns null when unresolvable.
+async function resolvePlace(input) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return null;
-  const searchText = extractPlaceSearchQuery(googleMapsUrl);
-  if (!searchText) return null;
 
+  const fieldMask = "places.id,places.displayName,places.nationalPhoneNumber,places.internationalPhoneNumber";
+  const placeId = extractPlaceId(input);
+
+  // Direct Place ID lookup is exact; otherwise fall back to text search.
+  if (placeId) {
+    const res = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "id,displayName,nationalPhoneNumber,internationalPhoneNumber",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const place = await res.json();
+    return {
+      id: place.id ?? placeId,
+      name: place.displayName?.text ?? null,
+      phone: place.nationalPhoneNumber ?? place.internationalPhoneNumber ?? null,
+    };
+  }
+
+  const searchText = extractPlaceSearchQuery(input) || String(input || "").trim();
+  if (!searchText) return null;
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "places.nationalPhoneNumber,places.internationalPhoneNumber,places.displayName",
+      "X-Goog-FieldMask": fieldMask,
     },
     body: JSON.stringify({ textQuery: searchText }),
     signal: AbortSignal.timeout(10000),
@@ -41,11 +79,30 @@ async function fetchPlacePhone(googleMapsUrl) {
   if (!res.ok) return null;
   const data = await res.json();
   const place = data.places?.[0];
-  return place?.nationalPhoneNumber ?? place?.internationalPhoneNumber ?? null;
+  if (!place) return null;
+  return {
+    id: place.id ?? null,
+    name: place.displayName?.text ?? null,
+    phone: place.nationalPhoneNumber ?? place.internationalPhoneNumber ?? null,
+  };
+}
+
+async function fetchPlacePhone(googleMapsUrl) {
+  const place = await resolvePlace(googleMapsUrl);
+  return place?.phone ?? null;
 }
 
 function normalizePhone(phone) {
-  return (phone || "").replace(/\D/g, "");
+  const digits = (phone || "").replace(/\D/g, "");
+  // Treat a US 11-digit number (leading country code "1") the same as its
+  // 10-digit form, so a profile stored as "+1 510-…" matches a user who
+  // types the bare 10-digit number.
+  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+  return digits;
+}
+
+function normalizeName(name) {
+  return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 // ─── Firecrawl ───────────────────────────────────────────────────────────────
@@ -136,6 +193,42 @@ export async function verifyBusinessOwnership(method, claimedValue, profile) {
     return { verified: false, method: "phone", evidence: { onFile, claimed } };
   }
 
+  if (method === "google_maps") {
+    const resolved = await resolvePlace(claimedValue);
+    if (!resolved) {
+      return { verified: false, method: "google_maps", evidence: { claimed: claimedValue, reason: "could not resolve listing" } };
+    }
+
+    // The harvested doc id is `gp_<place_id>`; that's the strongest anchor.
+    const onFilePlaceId = profile.placeId || profile.place_id || null;
+    if (onFilePlaceId && resolved.id && onFilePlaceId === resolved.id) {
+      return { verified: true, method: "google_maps", evidence: { matchedOn: "place_id", placeId: resolved.id } };
+    }
+
+    // Otherwise confirm the resolved listing is the same business by phone or name.
+    const onFile = await resolvePlace(profile.googleMapsUrl);
+    if (onFile) {
+      if (onFile.id && resolved.id && onFile.id === resolved.id) {
+        return { verified: true, method: "google_maps", evidence: { matchedOn: "place_id", placeId: resolved.id } };
+      }
+      const phoneA = normalizePhone(onFile.phone);
+      const phoneB = normalizePhone(resolved.phone);
+      if (phoneA && phoneA === phoneB) {
+        return { verified: true, method: "google_maps", evidence: { matchedOn: "phone", phone: phoneB } };
+      }
+      const nameA = normalizeName(onFile.name);
+      const nameB = normalizeName(resolved.name);
+      if (nameA && nameA === nameB) {
+        return { verified: true, method: "google_maps", evidence: { matchedOn: "name", name: nameB } };
+      }
+    }
+    return {
+      verified: false,
+      method: "google_maps",
+      evidence: { claimed: claimedValue, resolved: { name: resolved.name, phone: resolved.phone } },
+    };
+  }
+
   if (method === "website_email") {
     const claimed = String(claimedValue).toLowerCase().trim();
     if (profile.websiteUrl) {
@@ -158,6 +251,7 @@ export async function verifyBusinessOwnership(method, claimedValue, profile) {
 export function availableVerificationMethods(profile) {
   const methods = [];
   if (profile.businessPhone || profile.googleMapsUrl) methods.push("phone");
+  if (profile.googleMapsUrl || profile.placeId || profile.place_id) methods.push("google_maps");
   if (profile.websiteUrl) methods.push("website_email");
   if (profile.instagramHandle) methods.push("instagram");
   methods.push("gemini");

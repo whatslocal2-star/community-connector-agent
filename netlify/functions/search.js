@@ -1,4 +1,5 @@
 import { searchMembers } from "./lib/search.js";
+import { enforceRateLimit } from "./lib/rateLimit.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +11,11 @@ export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders, body: "" };
   }
+
+  // Public + unauthenticated, and every call hits OpenAI (intent parse) +
+  // Pinecone. Cap per-IP so a scripted loop can't run up cost or quota.
+  const limited = await enforceRateLimit(event, { name: "search", limit: 60, windowSec: 60 });
+  if (limited) return limited;
 
   try {
     let query, filters = {}, excludes = {}, limit;

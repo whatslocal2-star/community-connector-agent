@@ -8,6 +8,7 @@ import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations, runConnectorSearch } from "./lib/recommend.js";
 import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
 import { enqueuePostSave } from "./lib/triggerPostSave.js";
+import { enforceRateLimit } from "./lib/rateLimit.js";
 import { initObservability, captureError, trackEvent, flushObservability } from "./lib/observability.js";
 
 initObservability({ context: "chat" });
@@ -32,6 +33,11 @@ export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: { ...corsHeaders }, body: "Method Not Allowed" };
   }
+
+  // Public + unauthenticated; every turn calls OpenAI (+ Pinecone on recs).
+  // Cap per-IP so a curl loop can't run up spend or trip Firestore quota.
+  const limited = await enforceRateLimit(event, { name: "chat", limit: 30, windowSec: 60 });
+  if (limited) return limited;
 
   let body;
   try {

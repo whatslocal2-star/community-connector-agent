@@ -1,6 +1,7 @@
 import { loadMember, saveMember } from "./lib/db.js";
 import { verifyBusinessOwnership, availableVerificationMethods, VERIFICATION_METHODS } from "./lib/verify.js";
 import { isAdminAuthorized } from "./lib/adminAuth.js";
+import { checkRateLimit, tooManyRequests } from "./lib/rateLimit.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,6 +55,16 @@ export const handler = async (event) => {
       if (!VERIFICATION_METHODS.includes(method)) {
         return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: `method must be one of ${VERIFICATION_METHODS.join(", ")}` }) };
       }
+
+      // Throttle ownership-proof attempts per profile so the claim form can't
+      // be used to brute-force a phone/handle (and to cap Places/Gemini spend).
+      const { allowed, retryAfter } = await checkRateLimit({
+        key: `verify:${memberId}`,
+        limit: 12,
+        windowSec: 3600,
+      });
+      if (!allowed) return tooManyRequests(retryAfter, corsHeaders);
+
       const member = await loadMember(memberId);
       if (!member) {
         return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: "Not found" }) };
