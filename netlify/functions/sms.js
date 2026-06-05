@@ -10,6 +10,9 @@ import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations, runConnectorSearch } from "./lib/recommend.js";
 import { enqueuePostSave } from "./lib/triggerPostSave.js";
+import { initObservability, captureError, trackEvent, flushObservability } from "./lib/observability.js";
+
+initObservability({ context: "sms" });
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -113,6 +116,14 @@ export const handler = async (event) => {
       const outcome = await extractOutcome(incomingText, { reason: awaiting.reason });
       await recordOutcome(awaiting.id, { raw: incomingText, outcome });
 
+      trackEvent(fromNumber, "outcome_received", {
+        channel: "sms",
+        matchLogId: awaiting.id,
+        attended: outcome?.attended ?? null,
+        sentiment: outcome?.sentiment ?? null,
+        would_repeat: outcome?.would_repeat ?? null,
+      });
+
       const implicit = outcome?.implicit_profile_updates;
       if (implicit && Object.keys(implicit).length) {
         await saveMember(fromNumber, { profileUpdate: implicit });
@@ -128,6 +139,7 @@ export const handler = async (event) => {
       history.push({ role: "assistant", content: ack });
       await saveMember(fromNumber, { history, meta: { phone: fromNumber, source: "sms" } });
       await sendSms(fromNumber, replyFrom, ack);
+      await flushObservability();
       return { statusCode: 200, body: "OK" };
     }
 
@@ -181,14 +193,24 @@ export const handler = async (event) => {
             }
           }
         } else if (shouldRecommend(member.profile)) {
+          trackEvent(fromNumber, "profile_completed", {
+            channel: "sms",
+            memberType: member.profile.memberType,
+            city: member.profile.city ?? null,
+          });
           try {
             const recs = await makeFirstRecommendations(fromNumber, member.profile, { channel: "sms" });
             if (recs?.paragraph) {
               replyText = `${replyText}\n\n${recs.paragraph}`;
               await saveMember(fromNumber, { profileUpdate: { firstRecsMadeAt: new Date().toISOString() } });
+              trackEvent(fromNumber, "first_recs_sent", {
+                channel: "sms",
+                memberType: member.profile.memberType,
+                recCount: recs.logs?.length ?? null,
+              });
             }
           } catch (err) {
-            console.error("makeFirstRecommendations error:", err);
+            captureError(err, { fn: "sms", step: "makeFirstRecommendations", phone: fromNumber });
           }
         }
 
@@ -198,7 +220,7 @@ export const handler = async (event) => {
         await enqueuePostSave(fromNumber, profileUpdate, "sms");
       }
     } catch (err) {
-      console.error("Embed/recommend error:", err);
+      captureError(err, { fn: "sms", step: "embed-recommend", phone: fromNumber });
     }
 
     history.push({ role: "assistant", content: replyText });
@@ -206,7 +228,7 @@ export const handler = async (event) => {
 
     await sendSms(fromNumber, replyFrom, replyText);
   } catch (err) {
-    console.error("SMS handler error:", err);
+    captureError(err, { fn: "sms", step: "top-level", phone: fromNumber });
     try {
       await sendSms(fromNumber, replyFrom, "Sorry, something went wrong. Please try again in a moment.");
     } catch {
@@ -214,5 +236,6 @@ export const handler = async (event) => {
     }
   }
 
+  await flushObservability();
   return { statusCode: 200, body: "OK" };
 };

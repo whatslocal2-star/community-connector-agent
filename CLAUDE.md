@@ -86,7 +86,8 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/lib/enrich.js` | Jina Reader scraping, Google Places API, GPT profile extraction |
 | `netlify/functions/lib/subscriptions.js` | Builds subscription records from captured profile fields |
 | `netlify/functions/lib/events.js` | Event suggestion CRUD for Firestore |
-| `netlify/functions/lib/syncToProlocaliq.js` | ProLocalIQ account sync |
+| `netlify/functions/lib/syncToProlocaliq.js` | ProLocalIQ account sync (deprecated, unused) |
+| `netlify/functions/lib/observability.js` | Sentry + PostHog single entry point: `initObservability` / `trackEvent` / `captureError` / `flushObservability`. No-ops when `SENTRY_DSN`/`POSTHOG_API_KEY` unset. Used by chat/sms + all 3 crons. Serverless: callers must `flushObservability()` before returning |
 | `trigger.config.ts` | Trigger.dev project config |
 | `trigger/harvest-events.ts` | Daily cron job — scrape subscribed channels, detect + reword events |
 | `trigger/followup-intros.ts` | Hourly cron — send 48h follow-up on pending matchLogs, route reply through `extractOutcome` |
@@ -232,10 +233,12 @@ createdAt, updatedAt
 - ⬜ **Run the backfill (paginated):** loop `/backfill-structured?reembedAll=1&limit=25&offset=N` until `nextOffset` is null. Seeds the `offers`/`needs` namespaces + refreshes metadata for ~400 existing members. Needs `ADMIN_TOKEN` bearer. Endpoint is now resumable — the unpaginated full run used to time out (~400 members × 3 embeddings).
 - ⬜ Smoke test: one web chat turn revealing a business → confirm a green `post-save-pipeline` run in the Trigger dashboard + `ownershipVerification` written to the member doc.
 
-### Observability (PR #1 — `feat/observability-stack`)
+### Observability (✅ instrumentation merged to main 2026-06-05; config pending)
+The Sentry + PostHog instrumentation is now grafted into the current `chat.js`/`sms.js` + all 3 crons via `lib/observability.js` (no-ops cleanly when env vars unset). Events: `outcome_received`, `profile_completed`, `first_recs_sent` (web+sms), `followup_sent`/`followup_run`, `event_harvest_run`, `oakland_harvest_run`. Remaining is config + verification:
 - [ ] Set `SENTRY_DSN` in Netlify env vars (Site → Environment variables)
 - [ ] Set `POSTHOG_API_KEY` (+ optional `POSTHOG_HOST`) in Netlify env vars
 - [ ] Set the same two vars in Trigger.dev dashboard (project `xeno`) so the 3 crons emit too
+- [ ] Redeploy (`netlify deploy --prod` + `npx trigger.dev deploy`) after setting the vars — code no-ops until they're present
 - [ ] After deploy: complete one web onboarding + one SMS onboarding; confirm `profile_completed` + `first_recs_sent` appear in PostHog with correct `channel`
 - [ ] After deploy: trigger one cron manually from Trigger.dev dashboard; confirm `event_harvest_run` / `oakland_harvest_run` / `followup_run` events land in PostHog
 - [ ] In PostHog: build the funnel `profile_completed → first_recs_sent → outcome_received`, broken down by `channel` and `memberType` — that's the core self-improving-loop dashboard

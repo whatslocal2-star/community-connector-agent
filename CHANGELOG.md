@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-06-05 (observability)
+- Grafted the server-side observability stack (Sentry + PostHog) from the stranded feat/observability-stack branch onto current chat.js/sms.js + all 3 crons via lib/observability.js. Emits profile_completed / first_recs_sent / outcome_received (web+sms) + cron run events; no-ops without env vars. Chose to graft rather than merge the stale branch (26 commits behind) and skipped the processTurn refactor for now (too risky without runnable integration tests on the two core handlers). Fixed the branch's stale recCount (recs.matches -> recs.logs). Deps: @sentry/node, posthog-node.
+
 ## 2026-06-05 (docs)
 - LEARNINGS.md: added an implementation-status mapping of the layered-intelligence vision to what's shipped; documented complementary matching as the structural fix for the re-ranker's motivating problem; corrected stale tech-stack notes (embedding model is text-embedding-3-small; offers/needs namespaces).
 
