@@ -233,6 +233,17 @@ createdAt, updatedAt
 
 ## Production TODO
 
+### Commerce — Phase A outstanding (2026-06-05)
+Functions are built + merged to `main` (local, unpushed). All of the below gate go-live:
+- 🔴 **Fresh Composio key needed.** The `multiagent_mae` key (`composio-core`, legacy platform) 401s against `@composio/core`. Get a key from the current Composio dashboard → set `COMPOSIO_API_KEY`.
+- ⬜ **Create Composio auth configs** (dashboard → Auth Configs → New) for Shopify + Square → set `COMPOSIO_SHOPIFY_AUTH_CONFIG_ID` / `COMPOSIO_SQUARE_AUTH_CONFIG_ID`.
+- ⬜ **Set commerce env in Netlify:** `MARKETPLACE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (the functions write the shared `xeno` `products`/`vendor_settings`).
+- ⬜ **Verify the live loop** once the above are set: `npm run test:e2e:commerce` with `TEST_MEMBER_ID` (and `TEST_SMS_TO` / `TEST_PUSH_ORDER=1` to exercise the destructive paths). Confirms Shopify end-to-end (connect → sync → buy → push-back → SMS).
+- ⬜ **Verify Square `SQUARE_CREATE_ORDER` arg schema** in the dashboard — push-back is wired but unverified.
+- ⬜ **Deactivate removed products** — `composio-sync` only upserts; items deleted from the source catalog linger as `active` in Supabase. Mark missing `external_id`s inactive after a sync.
+- ⬜ **Push** connector-agent `main` (5 commits ahead of origin) — held until the live run passes, by request.
+- 🚫 Toast — out of scope (no Composio toolkit).
+
 ### Pre-launch trust + abuse hardening (2026-06-05)
 - ✅ **Rate limiting** (`lib/rateLimit.js`) — Firestore fixed-window limiter on the public unauthenticated endpoints: `/chat` 30/min/IP, `/search` 60/min/IP. Plus a per-member throttle on `/verify` (12/hr/member) so the claim form can't brute-force a phone/handle or run up Places/Gemini spend. Fails open on limiter error. Was previously NONE — a curl loop = real cost + the Firestore-quota 500s seen on 2026-05-18.
 - ✅ **Self-serve claim flow landed** — marketplace `feat/commerce-layer` merged to main (Clerk claim page `app/claim/[memberId]` + BFF `app/api/claim` holding `CONNECTOR_ADMIN_TOKEN` server-side, proxying verify → claim-profile here). Connector side hardened: `claim-profile` is no longer a stub — it **gates on `ownershipVerification.verified`** (refuses unverified claims unless admin `force`), returns 409 on re-claim, records `claimMethod`. Fixed the **method mismatch** that broke the UI's second button — added the `google_maps` verification method to `lib/verify.js` (the claim page sends `method:'google_maps'`, which the engine previously 400'd).
