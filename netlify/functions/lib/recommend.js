@@ -11,22 +11,10 @@ const DIRECTION_LABEL = {
   they_need_what_you_offer: "needs what you offer",
 };
 
-// Complementary matching: find members whose offers satisfy this member's
-// needs (and vice versa), rather than members who are merely similar.
-// Returns candidates shaped like searchMembers results, plus `directions`.
-export async function findComplementaryMatches(memberId, profile, { limit = 3 } = {}) {
-  const needsText = buildNeedsText(profile);
-  const offersText = buildOffersText(profile);
-  if (!needsText.trim() && !offersText.trim()) return [];
-
-  const ranked = await queryComplementary({
-    needsText,
-    offersText,
-    excludeIds: [memberId],
-    limit: limit * 2,
-  });
+// Load Firestore profiles for a ranked list from queryComplementary and shape
+// them like searchMembers results (phone stripped), preserving rank order.
+async function hydrateRanked(ranked, limit) {
   if (!ranked.length) return [];
-
   const db = getDb();
   const refs = ranked.map(r => db.collection("members").doc(r.id));
   const snaps = await db.getAll(...refs);
@@ -46,6 +34,37 @@ export async function findComplementaryMatches(memberId, profile, { limit = 3 } 
     if (out.length >= limit) break;
   }
   return out;
+}
+
+// Complementary matching: find members whose offers satisfy this member's
+// needs (and vice versa), rather than members who are merely similar.
+// Returns candidates shaped like searchMembers results, plus `directions`.
+export async function findComplementaryMatches(memberId, profile, { limit = 3 } = {}) {
+  const needsText = buildNeedsText(profile);
+  const offersText = buildOffersText(profile);
+  if (!needsText.trim() && !offersText.trim()) return [];
+
+  const ranked = await queryComplementary({
+    needsText,
+    offersText,
+    excludeIds: [memberId],
+    limit: limit * 2,
+  });
+  return hydrateRanked(ranked, limit);
+}
+
+// Convener tool: given a free-text objective (e.g. an event the convener wants
+// to make happen), find members who could help make it happen — i.e. members
+// whose offers match what the objective needs. The objective is treated as a
+// "needs" query against the offers namespace.
+export async function findCollaboratorsForObjective(objective, { limit = 10, excludeIds = [] } = {}) {
+  if (!objective || !objective.trim()) return [];
+  const ranked = await queryComplementary({
+    needsText: objective,
+    excludeIds,
+    limit,
+  });
+  return hydrateRanked(ranked, limit);
 }
 
 // Decide whether this member has enough profile signal to receive a

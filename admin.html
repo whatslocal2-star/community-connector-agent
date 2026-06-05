@@ -411,6 +411,16 @@
 
   <div class="filters" id="filters"></div>
 
+  <div class="convener" id="convener" style="margin:0 24px 16px;padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;">
+    <div style="font-weight:600;margin-bottom:8px;">🤝 Convener — find collaborators for an objective</div>
+    <textarea id="convenerObjective" rows="2" placeholder="e.g. an event series about places of the world — need artists, a venue, and food vendors" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font:inherit;box-sizing:border-box;"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap;">
+      <input id="convenerAnchor" placeholder="Anchor member ID (optional — log intros from this member)" style="flex:1;min-width:240px;padding:8px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
+      <button class="refresh-btn" onclick="convenerSearch()">Find collaborators</button>
+    </div>
+    <div id="convenerResults" style="margin-top:12px;"></div>
+  </div>
+
   <div class="search-bar">
     <input type="search" id="searchInput" placeholder="Search by name, city, discipline, niche, cause…" oninput="render()" />
   </div>
@@ -899,6 +909,81 @@
     if (h < 24) return `${h}h ago`;
     const d = Math.floor(h / 24);
     return `${d}d ago`;
+  }
+
+  // ── Convener: complementary collaborator search ──
+  async function convenerSearch() {
+    const objective = document.getElementById("convenerObjective").value.trim();
+    const results = document.getElementById("convenerResults");
+    if (!objective) { results.innerHTML = ""; return; }
+    results.innerHTML = `<p style="color:#9ca3af;font-size:13px">Searching the community…</p>`;
+    const token = sessionStorage.getItem("admin_token");
+    try {
+      const res = await fetch("/.netlify/functions/convener-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ objective, limit: 12 }),
+      });
+      if (res.status === 401) { logout(); return; }
+      const data = await res.json();
+      if (!data.candidates?.length) {
+        results.innerHTML = `<p style="color:#9ca3af;font-size:13px">No collaborators surfaced yet — the network may still be filling in (run /backfill-structured?reembedAll=1 once after deploy).</p>`;
+        return;
+      }
+      results.innerHTML = data.candidates.map(convenerCard).join("");
+    } catch {
+      results.innerHTML = `<p style="color:#dc2626;font-size:13px">Search failed.</p>`;
+    }
+  }
+
+  function convenerCard(c) {
+    const type = c.memberType || "unknown";
+    const loc = [c.neighborhood, c.city].filter(Boolean).join(", ");
+    const offers = (c.offers || []).slice(0, 3).join(", ");
+    const fit = (c.fit || []).join(" · ");
+    const unclaimed = c.status === "unclaimed"
+      ? ` <span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:6px;">unclaimed</span>` : "";
+    return `<div class="match-card" style="cursor:default;">
+      <div class="match-score">${Math.round((c.score || 0) * 100)}</div>
+      <div class="match-info" style="flex:1;">
+        <div class="match-name"><span class="badge badge-${type}">${type}</span> <strong>${escapeHtml(c.name || c.id)}</strong>${unclaimed}</div>
+        ${offers ? `<div class="match-summary">offers: ${escapeHtml(offers)}</div>` : ""}
+        ${c.description ? `<div class="match-summary">${escapeHtml(c.description)}</div>` : ""}
+        ${loc ? `<div class="match-location">${escapeHtml(loc)}</div>` : ""}
+        ${fit ? `<div style="font-size:11px;color:#059669;margin-top:2px;">${escapeHtml(fit)}</div>` : ""}
+      </div>
+      <button class="refresh-btn" onclick="logConvenerIntro('${escapeId(c.id)}', this)">Log intro</button>
+    </div>`;
+  }
+
+  async function logConvenerIntro(candidateId, btn) {
+    const anchor = document.getElementById("convenerAnchor").value.trim();
+    const objective = document.getElementById("convenerObjective").value.trim();
+    if (!anchor) {
+      alert("Set an Anchor member ID first — the member you're connecting this collaborator to (e.g. the event host). The intro is logged from the anchor to this collaborator.");
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Logging…";
+    const token = sessionStorage.getItem("admin_token");
+    try {
+      const res = await fetch("/.netlify/functions/match-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          memberId: anchor,
+          matchedMemberId: candidateId,
+          reason: `convener: ${objective}`.slice(0, 300),
+          channel: "web",
+        }),
+      });
+      const data = await res.json();
+      btn.textContent = data.ok ? "✓ Logged" : "Failed";
+      if (!data.ok) btn.disabled = false;
+    } catch {
+      btn.textContent = "Failed";
+      btn.disabled = false;
+    }
   }
 
   // ── Boot ──

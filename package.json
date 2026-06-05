@@ -8,7 +8,8 @@
     "test:e2e:search": "netlify dev:exec node tests/e2e-search.js",
     "test:e2e:onboarding": "netlify dev:exec node tests/e2e-onboarding.js",
     "test:e2e:backfill": "netlify dev:exec node tests/e2e-backfill.js",
-    "test:e2e": "npm run test:e2e:search && npm run test:e2e:onboarding && npm run test:e2e:backfill"
+    "test:e2e:complementary": "netlify dev:exec node tests/e2e-complementary.js",
+    "test:e2e": "npm run test:e2e:search && npm run test:e2e:onboarding && npm run test:e2e:backfill && npm run test:e2e:complementary"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

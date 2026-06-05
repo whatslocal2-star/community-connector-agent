@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-05 (later)
+- Added the convener collaborator-search tool: `/convener-search` admin endpoint + Convener panel in admin.html (objective → complementary collaborators, one-click "Log intro" → matchLog). New `findCollaboratorsForObjective` in recommend.js.
+- Added `tests/e2e-complementary.js` real-stack proof of complementary matching (+ `npm run test:e2e:complementary`).
+
 ## 2026-06-05
 - Split the monolithic system prompt into onboarding vs connector personality modes; added two-pass conversational search in connector mode.
 - Moved post-save background work (subscriptions, location parse, cross-ref verify, enrichment) from fire-and-forget to a Trigger.dev `post-save-pipeline` task; fixed `shouldCrossRef` gate (was always skipping artists/organizers/influencers).
