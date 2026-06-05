@@ -4,7 +4,6 @@ import { buildSubscriptionsFromProfile, hasNewSubscriptionData } from "../netlif
 import { parseGoogleMapsUrl } from "../netlify/functions/lib/parseLocation.js";
 import { shouldCrossRef, runCrossRefVerify } from "../netlify/functions/lib/verifyCrossRef.js";
 import { enrichProfile, hasEnrichableData } from "../netlify/functions/lib/enrich.js";
-import { syncToProlocaliq, isReadyToSync } from "../netlify/functions/lib/syncToProlocaliq.js";
 
 type Payload = {
   memberId: string;
@@ -71,16 +70,8 @@ export const postSavePipeline = task({
       }
     }
 
-    // 5. ProLocalIQ account sync once we have email + name + type.
-    if (isReadyToSync(profile)) {
-      const result = await syncToProlocaliq(memberId, profile);
-      if (result?.status === "created" || result?.status === "already_exists") {
-        await saveMember(memberId, {
-          profileUpdate: { prolocaliqSynced: true, prolocaliqAccountId: result.businessAccountId ?? null },
-        });
-        results.prolocaliq = result.status;
-      }
-    }
+    // (ProLocalIQ sync removed — that integration is deprecated. The
+    // syncToProlocaliq lib remains unused in case it's ever revived.)
 
     return { memberId, ...results };
   },

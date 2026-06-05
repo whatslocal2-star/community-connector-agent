@@ -19,7 +19,7 @@ This project serves as the **signup + data layer** for the Community Marketplace
    - *Onboarding mode:* if `shouldRecommend(profile)` (name + memberType + ≥2 substantive fields, `firstRecsMadeAt` unset), run `makeFirstRecommendations` — search top 3 via `searchMembers({parseIntent:false})` excluding self, write a matchLog per candidate, GPT-write a natural blurb, append to reply, set `firstRecsMadeAt`. One-shot per member — this is the LAST onboarding turn; the next turn flips to connector mode.
    - *Connector mode:* if the model emitted a `searchQuery`, run `runConnectorSearch` — real `searchMembers({parseIntent:true})` over the directory, a matchLog per candidate (reason = the query + matchedOn breadcrumbs), 2nd GPT pass writes a warm intro blurb, appended to reply. Graceful "couldn't find a match yet" fallback when empty. No searchQuery = ordinary connector chat.
 9. Save final reply + history
-10. **Enqueue post-save pipeline:** `enqueuePostSave(memberId, profileUpdate, channel)` fires the `post-save-pipeline` Trigger.dev task (subscriptions, Google Maps → lat/lng, cross-reference verification, enrichment, prolocaliq sync). This used to be fire-and-forget promises inside the function — Netlify killed them mid-flight once the response returned, so network-bound steps (Gemini/Jina/Places) rarely completed. Now they run reliably in Trigger.dev. Return to client.
+10. **Enqueue post-save pipeline:** `enqueuePostSave(memberId, profileUpdate, channel)` fires the `post-save-pipeline` Trigger.dev task (subscriptions, Google Maps → lat/lng, cross-reference verification, enrichment). This used to be fire-and-forget promises inside the function — Netlify killed them mid-flight once the response returned, so network-bound steps (Gemini/Jina/Places) rarely completed. Now they run reliably in Trigger.dev. Return to client.
 
 **Two personality modes (`lib/systemPrompt.js`):**
 - **Onboarding mode** (`ONBOARDING_PROMPT`) — warm neighbor doing a guided interview; aggressive structured data capture. Used until first recs fire.
@@ -89,7 +89,7 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `trigger/harvest-events.ts` | Daily cron job — scrape subscribed channels, detect + reword events |
 | `trigger/followup-intros.ts` | Hourly cron — send 48h follow-up on pending matchLogs, route reply through `extractOutcome` |
 | `trigger/harvest-oakland.ts` | Weekly cron — harvest Oakland businesses from Google Places, GPT-enrich, store as `status:"unclaimed"` |
-| `trigger/post-save-pipeline.ts` | Event task (triggered per chat/sms turn) — reloads the member, then runs subscriptions, location parse, cross-ref verify, enrichment, prolocaliq sync. Imports the netlify `lib/*` functions directly. Replaces the old fire-and-forget blocks that Netlify killed. |
+| `trigger/post-save-pipeline.ts` | Event task (triggered per chat/sms turn) — reloads the member, then runs subscriptions, location parse, cross-ref verify, enrichment. Imports the netlify `lib/*` functions directly. Replaces the old fire-and-forget blocks that Netlify killed. (ProLocalIQ sync was removed — deprecated.) |
 
 **Firestore collections:**
 
@@ -180,13 +180,13 @@ createdAt, updatedAt
 - `FIRECRAWL_API_KEY` — website email scraping
 - `GEMINI_API_KEY` — Gemini 2.0 Flash fallback when structured methods fail
 
-**ProLocalIQ sync:**
+**ProLocalIQ sync (DEPRECATED — removed from the post-save pipeline; lib kept unused):**
 - `PROLOCALIQ_URL` — base URL of the prolocaliq Express server (e.g. `https://prolocaliq.com`)
 - `CC_SYNC_TOKEN` — shared secret; must also be set on prolocaliq as `CC_SYNC_TOKEN`
 
 **Trigger.dev (v4, project `xeno` / `proj_xlqnddtyofcgtvjudspi` under `xen-209f` org):**
 - Deploy: `npx trigger.dev@latest deploy` (must match `@trigger.dev/sdk` v4.x pinned in package.json)
-- Env vars set in Trigger.dev dashboard mirror Netlify: `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER` (for follow-up SMS), `GOOGLE_PLACES_API_KEY` (Oakland harvest + location parse), `GEMINI_API_KEY` (cross-ref verify), `FIRECRAWL_API_KEY`, `PROLOCALIQ_URL`, `CC_SYNC_TOKEN` (the `post-save-pipeline` task runs enrichment / cross-ref / prolocaliq sync, so it needs the same keys those steps use)
+- Env vars set in Trigger.dev dashboard mirror Netlify: `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER` (for follow-up SMS), `GOOGLE_PLACES_API_KEY` (Oakland harvest + enrichment), `GEMINI_API_KEY` (cross-ref verify). The `post-save-pipeline` task needs firebase + OpenAI + Gemini + Places. Note: `FIRECRAWL_API_KEY`, `PROLOCALIQ_URL`, and `CC_SYNC_TOKEN` are NOT needed by the task (Firecrawl is only for the `/verify` endpoint; ProLocalIQ is deprecated).
 - `TRIGGER_SECRET_KEY` must be set in **Netlify** (not Trigger.dev) so chat/sms can enqueue tasks
 - `post-save-pipeline.ts` imports the netlify `lib/*.js` modules directly — they're lazy-init (firebase `getApps()` guard, lazy OpenAI client), so they bundle and run cleanly inside Trigger
 - `trigger.config.ts` requires `runtime: "node-22"` and `maxDuration: 600`

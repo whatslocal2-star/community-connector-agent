@@ -1,8 +1,8 @@
 import { tasks } from "@trigger.dev/sdk";
 
 // Enqueue the post-save background pipeline (subscriptions, location parse,
-// cross-reference verification, enrichment, prolocaliq sync) as a Trigger.dev
-// task. These used to run as fire-and-forget promises inside the Netlify
+// cross-reference verification, enrichment) as a Trigger.dev task. These used
+// to run as fire-and-forget promises inside the Netlify
 // function, which terminates as soon as the response is returned — so any
 // network-bound step (Gemini, Jina, Google Places, OpenAI) was routinely
 // killed mid-flight. Running them in Trigger.dev guarantees completion.

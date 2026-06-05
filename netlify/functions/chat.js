@@ -139,9 +139,9 @@ export const handler = async (event) => {
           await saveMember(sessionId, { history: updatedHistory, meta: { source: "web" } });
 
           // Heavy background work (subscriptions, location parse, cross-ref
-          // verification, enrichment, prolocaliq sync) runs in a Trigger.dev
-          // task so it survives past the Netlify function returning. The task
-          // reloads the member and decides which steps to run.
+          // verification, enrichment) runs in a Trigger.dev task so it survives
+          // past the Netlify function returning. The task reloads the member
+          // and decides which steps to run.
           await enqueuePostSave(sessionId, profileUpdate, "web");
         }
       } catch (err) {

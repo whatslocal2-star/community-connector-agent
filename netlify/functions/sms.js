@@ -193,8 +193,8 @@ export const handler = async (event) => {
         }
 
         // Heavy background work runs in a Trigger.dev task so it survives
-        // past this webhook returning (cross-ref verification, prolocaliq
-        // sync, etc.). See trigger/post-save-pipeline.ts.
+        // past this webhook returning (subscriptions, location parse,
+        // cross-ref verification, enrichment). See trigger/post-save-pipeline.ts.
         await enqueuePostSave(fromNumber, profileUpdate, "sms");
       }
     } catch (err) {
