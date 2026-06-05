@@ -216,7 +216,13 @@ createdAt, updatedAt
 - **Onboarding vs connector personality split is live** — the monolithic `SYSTEM_PROMPT` is now two prompts in `lib/systemPrompt.js`: `ONBOARDING_PROMPT` (warm guided interview) and `CONNECTOR_PROMPT` (post-onboarding "friend who knows everyone"). `buildSystemPrompt(profile,{sms})` selects per-turn via `isOnboarded(profile)` (gated on `firstRecsMadeAt`). Connector mode is forbidden from inventing members — it emits a `searchQuery`, the server runs a real directory search (`runConnectorSearch`), logs matchLogs, and a 2nd GPT pass writes the intro. Conversational recommendation engine is now live, and every connector intro is another labeled matchLog feeding the self-improving loop. chat.js + sms.js both load the member up front to pick the mode.
 
 ## Production TODO
-- After next deploy, run `/backfill-structured?reembedAll=1` once to migrate existing members and refresh their Pinecone metadata with the expanded schema. Idempotent; subsequent runs can omit `?reembedAll=1`. This re-embed ALSO populates the new `offers` / `needs` Pinecone namespaces (via the fallback synthesis in `buildOffersText`/`buildNeedsText`), so complementary matching works for pre-existing members too — run it once before relying on first-recs.
+
+### Deploy status (2026-06-05)
+- ✅ Personality split, Trigger post-save pipeline, complementary matching, ProLocalIQ removal — all merged to `main` and pushed (Netlify auto-deploys).
+- ✅ Trigger.dev: all 4 tasks deployed (version `20260605.5`); `post-save-pipeline` is live.
+- ✅ Env: `TRIGGER_SECRET_KEY` set in Netlify; `GEMINI_API_KEY` set in Trigger.dev.
+- ⬜ **Run once after the current Netlify deploy goes green:** `/backfill-structured?reembedAll=1` — refreshes Pinecone metadata with the expanded schema AND seeds the new `offers` / `needs` namespaces (via fallback synthesis in `buildOffersText`/`buildNeedsText`) so complementary matching covers pre-existing members. Idempotent; later runs can omit `?reembedAll=1`.
+- ⬜ Smoke test: one web chat turn revealing a business → confirm a green `post-save-pipeline` run in the Trigger dashboard + `ownershipVerification` written to the member doc.
 
 ### Observability (PR #1 — `feat/observability-stack`)
 - [ ] Set `SENTRY_DSN` in Netlify env vars (Site → Environment variables)
@@ -240,3 +246,6 @@ createdAt, updatedAt
 
 ### Log aggregation (defer until pain)
 - [ ] Skip unless Netlify function logs become painful to grep. Then: Axiom log drain (cheapest, generous free tier) or Better Stack.
+
+## Changelog
+See [CHANGELOG.md](./CHANGELOG.md) for history.
