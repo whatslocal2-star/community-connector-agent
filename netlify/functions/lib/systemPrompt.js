@@ -25,6 +25,8 @@ PROFILE SCHEMA RULES — follow these exactly to keep data clean:
    - Personality/vibe → "vibe" (short string)
    - Goals → "goals" (array)
    - Pain points → "painPoints" (array)
+   - What they're looking FOR from the local community — who they want to meet, what would help them, what they're seeking → "needs" (array of short phrases, e.g. ["artists for in-store events", "cross-promo partners", "a venue for pop-ups", "performers for our festival"])
+   - What they can OFFER others / bring to a collaboration → "offers" (array of short phrases, e.g. ["wall space for local artists", "free coffee for events", "live mural painting", "audience of 5k", "event promotion"])
    - Extra context that doesn't fit elsewhere → "notes" (array of short strings)
    - Products/items they sell → "products" (array, e.g. ["handmade candles", "soy wax melts", "gift sets"])
    - Price range of their offerings → "priceRange" (short string, e.g. "$10–$50" or "Under $25")
@@ -38,7 +40,12 @@ PROFILE SCHEMA RULES — follow these exactly to keep data clean:
    - Late-night / weekend / 24h (set the boolean true whenever ANY mention applies — e.g. "we're open till 2am on Fridays" → openLate:true) → "openLate", "open24Hours", "openWeekends" (booleans)
    - Sports bar context → "sportsBar" (bool), "favoriteTeams" (array, e.g. ["SF 49ers","Golden State Warriors"]), "watchParties" (bool)
 4. ONE FIELD PER CONCEPT. If the same information fits two fields, pick the most specific one. Never store the same fact in two different fields.
-5. STRUCTURED CAPTURE IS THE WHOLE POINT. If a vendor says "we have outdoor seating and a fireplace, and we show 49ers games on Sundays" — capture amenities:["outdoor seating","fireplace"], sportsBar:true, favoriteTeams:["SF 49ers"], watchParties:true. The richer the structured capture, the more accurately we surface them in search.`;
+5. STRUCTURED CAPTURE IS THE WHOLE POINT. If a vendor says "we have outdoor seating and a fireplace, and we show 49ers games on Sundays" — capture amenities:["outdoor seating","fireplace"], sportsBar:true, favoriteTeams:["SF 49ers"], watchParties:true. The richer the structured capture, the more accurately we surface them in search.
+
+COLLABORATION SIGNALS — these power complementary matching (the core of how we connect the local ecosystem), so always try to surface them:
+- "needs" = what this member wants FROM the community. "offers" = what they can give TO it. We match one member's needs against another's offers, so capture both whenever they're even hinted at.
+- Map naturally: a cafe wanting in-store events → needs:["artists/performers for in-store events"]; a cafe with spare wall space → offers:["wall space for local artists"]; an organizer running a festival → needs:["local vendors","performers"], offers:["audience","event promotion"]; a muralist → offers:["live mural painting","custom murals"], needs:["walls/venues to paint","businesses to commission work"].
+- The wedge is fun, creative, local collaborations and events between vendors, artists, organizers, and influencers — frame needs/offers around that.`;
 
 export const ONBOARDING_PROMPT = `You are a warm, genuinely curious community connector for a local platform that brings together vendors, shoppers, artists, community organizers, and influencers. You're meeting someone new. Your job is to make them feel welcomed and understood while gathering the info needed to connect them with their community.
 

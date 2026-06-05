@@ -69,21 +69,115 @@ function buildProfileText(profile) {
   return parts.join(". ");
 }
 
+// Text describing what a member can OFFER the community / a collaborator.
+// Falls back to existing signals so members onboarded before needs/offers
+// existed still get a meaningful offers vector.
+export function buildOffersText(profile = {}) {
+  const parts = [];
+  if (profile.offers?.length)           parts.push(profile.offers.join(", "));
+  if (profile.services?.length)         parts.push(`services: ${profile.services.join(", ")}`);
+  if (profile.products?.length)         parts.push(`products: ${profile.products.join(", ")}`);
+  if (profile.shareTypes?.length)       parts.push(profile.shareTypes.join(", "));
+  if (profile.discipline)               parts.push(profile.discipline);          // artists offer their craft
+  if (profile.partnershipTypes?.length) parts.push(profile.partnershipTypes.join(", ")); // influencers
+  if (profile.businessDescription)      parts.push(profile.businessDescription);
+  if (Array.isArray(profile.pricePerProduct) && profile.pricePerProduct.length) {
+    const items = profile.pricePerProduct.filter(p => p?.name).map(p => p.name).join(", ");
+    if (items) parts.push(items);
+  }
+  return parts.join(". ");
+}
+
+// Text describing what a member NEEDS from the community.
+export function buildNeedsText(profile = {}) {
+  const parts = [];
+  if (profile.needs?.length)            parts.push(profile.needs.join(", "));
+  if (profile.goals?.length)            parts.push(profile.goals.join(", "));
+  if (profile.painPoints?.length)       parts.push(profile.painPoints.join(", "));
+  if (profile.needsMost?.length)        parts.push(profile.needsMost.join(", "));
+  if (profile.connectWith?.length)      parts.push(`wants to connect with: ${profile.connectWith.join(", ")}`);
+  if (profile.venueTypes?.length)       parts.push(`looking for venues: ${profile.venueTypes.join(", ")}`); // artists need venues
+  if (profile.interests?.length)        parts.push(`interested in: ${profile.interests.join(", ")}`);        // shoppers seek these
+  return parts.join(". ");
+}
+
+async function embedText(text) {
+  const response = await getOpenAI().embeddings.create({
+    model: "text-embedding-3-small",
+    input: text,
+  });
+  return response.data[0].embedding;
+}
+
+// Light metadata for the needs/offers namespaces — enough to scope a
+// complementary search (e.g. same city) without re-reading Firestore.
+function buildCollabMetadata(profile) {
+  const md = { memberType: profile.memberType || "unknown" };
+  for (const k of ["city", "neighborhood"]) {
+    if (profile[k]) md[k] = String(profile[k]).toLowerCase();
+  }
+  return md;
+}
+
 export async function upsertMemberVector(memberId, profile) {
   if (!process.env.PINECONE_API_KEY) return;
   const text = buildProfileText(profile);
   if (!text.trim()) return;
 
-  const response = await getOpenAI().embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-
-  await getIndex().upsert([{
+  const index = getIndex();
+  await index.upsert([{
     id: memberId,
-    values: response.data[0].embedding,
+    values: await embedText(text),
     metadata: buildPineconeMetadata(profile),
   }]);
+
+  // Complementary-matching vectors: a member's offers and needs live in their
+  // own namespaces so we can search one against the other (A's needs → the
+  // "offers" namespace finds members who offer what A needs, and vice versa).
+  const collabMd = buildCollabMetadata(profile);
+  const offersText = buildOffersText(profile);
+  const needsText = buildNeedsText(profile);
+  try {
+    if (offersText.trim()) {
+      await index.namespace("offers").upsert([{ id: memberId, values: await embedText(offersText), metadata: collabMd }]);
+    }
+    if (needsText.trim()) {
+      await index.namespace("needs").upsert([{ id: memberId, values: await embedText(needsText), metadata: collabMd }]);
+    }
+  } catch (err) {
+    console.error("upsert complementary vectors error:", err.message || err);
+  }
+}
+
+// Bidirectional complementary search. Given a member's needs/offers text,
+// returns ranked candidate ids who complement them. Each result carries the
+// direction(s) it matched on so callers can explain the fit.
+export async function queryComplementary({ needsText, offersText, excludeIds = [], topK = 50, limit = 10, minScore = 0.2 } = {}) {
+  if (!process.env.PINECONE_API_KEY) return [];
+  const index = getIndex();
+  const exclude = new Set(excludeIds);
+  const scores = new Map();
+
+  const accumulate = (matches, direction) => {
+    for (const m of matches || []) {
+      if (exclude.has(m.id) || (m.score ?? 0) < minScore) continue;
+      const cur = scores.get(m.id) || { id: m.id, score: 0, directions: [], memberType: m.metadata?.memberType };
+      cur.score += m.score ?? 0;
+      if (!cur.directions.includes(direction)) cur.directions.push(direction);
+      scores.set(m.id, cur);
+    }
+  };
+
+  if (needsText?.trim()) {
+    const r = await index.namespace("offers").query({ vector: await embedText(needsText), topK, includeMetadata: true });
+    accumulate(r.matches, "they_offer_what_you_need");
+  }
+  if (offersText?.trim()) {
+    const r = await index.namespace("needs").query({ vector: await embedText(offersText), topK, includeMetadata: true });
+    accumulate(r.matches, "they_need_what_you_offer");
+  }
+
+  return [...scores.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 function buildPineconeMetadata(profile) {
@@ -140,7 +234,11 @@ function buildPineconeMetadata(profile) {
 
 export async function deleteMemberVectors(ids) {
   if (!process.env.PINECONE_API_KEY || !ids?.length) return;
-  try { await getIndex().deleteMany(ids); } catch (e) { console.error("deleteMemberVectors:", e.message); }
+  const index = getIndex();
+  try { await index.deleteMany(ids); } catch (e) { console.error("deleteMemberVectors:", e.message); }
+  for (const ns of ["offers", "needs"]) {
+    try { await index.namespace(ns).deleteMany(ids); } catch (e) { console.error(`deleteMemberVectors ${ns}:`, e.message); }
+  }
 }
 
 export async function findSimilarMembers(memberId, topK = 5) {
