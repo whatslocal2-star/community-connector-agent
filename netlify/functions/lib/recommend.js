@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { searchMembers } from "./search.js";
-import { createMatchLog } from "./matchLog.js";
+import { createMatchLog, loadSuccessfulMatches } from "./matchLog.js";
 import { getDb } from "./db.js";
 import { queryComplementary, buildNeedsText, buildOffersText } from "./vectorSearch.js";
 
@@ -116,6 +116,8 @@ Given a member and a list of 1-3 candidate people we found for them, write a sin
 - feels like a friend giving an intro, not a directory listing
 - ends with a low-pressure prompt like "want us to make any of these intros?"
 
+If "successfulExamples" are provided, these are intros that ALREADY WORKED in this community. Learn from them: favour and lead with candidates that resemble those wins, and frame the intro in the spirit of what worked. Never mention the examples themselves to the user.
+
 Return JSON: { "paragraph": "..." }`;
 
 function candidatePayload(c) {
@@ -132,7 +134,7 @@ function candidatePayload(c) {
   };
 }
 
-async function writeRecoParagraph(memberProfile, candidates) {
+async function writeRecoParagraph(memberProfile, candidates, successfulExamples = []) {
   if (!candidates.length) return null;
   try {
     const completion = await client.chat.completions.create({
@@ -153,6 +155,7 @@ async function writeRecoParagraph(memberProfile, candidates) {
               vibe: memberProfile.vibe,
             },
             candidates: candidates.map(candidatePayload),
+            ...(successfulExamples.length ? { successfulExamples } : {}),
           }),
         },
       ],
@@ -190,9 +193,11 @@ You are given: the member, what they asked for, and 1-3 REAL candidates from our
 - uses ONLY the candidate details provided — never invent extra facts, handles, or names
 - ends with a low-pressure prompt like "want me to make an intro?"
 
+If "successfulExamples" are provided, these are intros that already worked in this community — favour and frame matches in their spirit, but never mention the examples to the user.
+
 Return JSON: { "paragraph": "..." }`;
 
-async function writeConnectorParagraph(memberProfile, request, candidates) {
+async function writeConnectorParagraph(memberProfile, request, candidates, successfulExamples = []) {
   if (!candidates.length) return null;
   try {
     const completion = await client.chat.completions.create({
@@ -210,6 +215,7 @@ async function writeConnectorParagraph(memberProfile, request, candidates) {
               neighborhood: memberProfile.neighborhood,
             },
             request,
+            ...(successfulExamples.length ? { successfulExamples } : {}),
             candidates: candidates.map(c => ({
               name: c.profile?.name,
               memberType: c.profile?.memberType,
@@ -250,7 +256,8 @@ export async function runConnectorSearch(memberId, memberProfile, searchQuery, {
   const candidates = results.filter(r => r.id !== memberId).slice(0, limit);
   if (!candidates.length) return null;
 
-  const paragraph = await writeConnectorParagraph(memberProfile, searchQuery, candidates);
+  const examples = await loadSuccessfulMatches({ memberId, limit: 5 }).catch(() => []);
+  const paragraph = await writeConnectorParagraph(memberProfile, searchQuery, candidates, examples);
 
   const logs = [];
   for (const c of candidates) {
@@ -306,7 +313,8 @@ export async function makeFirstRecommendations(memberId, memberProfile, { channe
   candidates = candidates.slice(0, limit);
   if (!candidates.length) return null;
 
-  const paragraph = await writeRecoParagraph(memberProfile, candidates);
+  const examples = await loadSuccessfulMatches({ memberId, limit: 5 }).catch(() => []);
+  const paragraph = await writeRecoParagraph(memberProfile, candidates, examples);
 
   const logs = [];
   for (const c of candidates) {

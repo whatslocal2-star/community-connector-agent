@@ -419,6 +419,13 @@
       <button class="refresh-btn" onclick="convenerSearch()">Find collaborators</button>
     </div>
     <div id="convenerResults" style="margin-top:12px;"></div>
+    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:600;font-size:13px;color:#374151;">Recent intros — mark how they went</span>
+        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadRecentIntros()">↻</button>
+      </div>
+      <div id="convenerIntros"><p style="color:#9ca3af;font-size:13px;">Loading…</p></div>
+    </div>
   </div>
 
   <div class="search-bar">
@@ -498,6 +505,7 @@
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "flex";
     loadMembers();
+    loadRecentIntros();
   }
 
   async function loadMembers() {
@@ -978,12 +986,101 @@
         }),
       });
       const data = await res.json();
-      btn.textContent = data.ok ? "✓ Logged" : "Failed";
-      if (!data.ok) btn.disabled = false;
+      if (data.ok && data.id) {
+        // Logged — offer immediate outcome capture (you may already know it),
+        // and refresh the recent-intros list so it shows up there too.
+        btn.replaceWith(outcomeControls(data.id));
+        loadRecentIntros();
+      } else {
+        btn.textContent = "Failed";
+        btn.disabled = false;
+      }
     } catch {
       btn.textContent = "Failed";
       btn.disabled = false;
     }
+  }
+
+  // A pair of 👍/👎 buttons that record a convener outcome on a matchLog.
+  function outcomeControls(matchLogId) {
+    const wrap = document.createElement("span");
+    wrap.style.cssText = "display:inline-flex;gap:6px;";
+    wrap.innerHTML = `
+      <button class="refresh-btn" style="font-size:12px;padding:4px 8px;" title="Mark this intro as worked">👍 Worked</button>
+      <button class="refresh-btn" style="font-size:12px;padding:4px 8px;" title="Mark this intro as didn't pan out">👎 Didn't</button>`;
+    const [okBtn, noBtn] = wrap.querySelectorAll("button");
+    okBtn.onclick = () => recordConvenerOutcome(matchLogId, "worked", wrap);
+    noBtn.onclick = () => recordConvenerOutcome(matchLogId, "didnt", wrap);
+    return wrap;
+  }
+
+  async function recordConvenerOutcome(matchLogId, verdict, container) {
+    container.innerHTML = `<span style="font-size:12px;color:#9ca3af;">Saving…</span>`;
+    const token = sessionStorage.getItem("admin_token");
+    try {
+      const res = await fetch("/.netlify/functions/match-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ matchLogId, verdict }),
+      });
+      const data = await res.json();
+      container.innerHTML = data.ok
+        ? `<span style="font-size:12px;color:${verdict === "worked" ? "#059669" : "#6b7280"};">${verdict === "worked" ? "👍 marked worked" : "👎 marked"}</span>`
+        : `<span style="font-size:12px;color:#dc2626;">failed</span>`;
+      if (data.ok) loadRecentIntros();
+    } catch {
+      container.innerHTML = `<span style="font-size:12px;color:#dc2626;">failed</span>`;
+    }
+  }
+
+  // List recent intros; let the convener label the ones not yet completed.
+  async function loadRecentIntros() {
+    const box = document.getElementById("convenerIntros");
+    const token = sessionStorage.getItem("admin_token");
+    try {
+      const res = await fetch("/.netlify/functions/match-log", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) { logout(); return; }
+      const logs = await res.json();
+      if (!Array.isArray(logs) || !logs.length) {
+        box.innerHTML = `<p style="color:#9ca3af;font-size:13px;">No intros logged yet.</p>`;
+        return;
+      }
+      const sorted = logs
+        .sort((a, b) => (introMs(b) - introMs(a)))
+        .slice(0, 15);
+      box.innerHTML = sorted.map(introRow).join("");
+      // Wire outcome buttons for not-yet-completed rows.
+      sorted.forEach(l => {
+        if (l.status === "completed") return;
+        const slot = document.getElementById(`intro_oc_${l.id}`);
+        if (slot) slot.replaceWith(outcomeControls(l.id));
+      });
+    } catch {
+      box.innerHTML = `<p style="color:#dc2626;font-size:13px;">Failed to load intros.</p>`;
+    }
+  }
+
+  function introMs(l) {
+    return l.introducedAt?._seconds ? l.introducedAt._seconds * 1000
+      : (typeof l.introducedAt === "string" ? Date.parse(l.introducedAt) : 0);
+  }
+
+  function introRow(l) {
+    const completed = l.status === "completed";
+    const sentiment = l.outcome?.sentiment;
+    const badge = completed
+      ? `<span style="font-size:11px;color:${sentiment === "positive" ? "#059669" : "#6b7280"};">${sentiment === "positive" ? "👍 worked" : "👎 didn't"}</span>`
+      : `<span id="intro_oc_${escapeId(l.id)}"></span>`;
+    const who = `${escapeHtml(l.memberName || l.memberId || "?")} → ${escapeHtml(l.matchedMemberName || l.matchedMemberId || "?")}`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:500;">${who}</div>
+        ${l.reason ? `<div style="color:#9ca3af;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(l.reason)}</div>` : ""}
+      </div>
+      <div style="flex-shrink:0;">${badge}</div>
+    </div>`;
   }
 
   // ── Boot ──

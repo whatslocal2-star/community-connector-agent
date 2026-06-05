@@ -82,6 +82,32 @@ export async function loadAwaitingOutcome(memberId) {
   return followed[0] ?? null;
 }
 
+// Level 1 in-context learning: past intros that actually WORKED, used as
+// worked-examples in the recommendation prompt so the system favours and
+// frames matches like the ones that succeeded. Prefers this member's own
+// wins, then fills with community-wide wins. Filters in-memory (status==
+// completed only) so no composite index is required.
+export async function loadSuccessfulMatches({ memberId, limit = 5 } = {}) {
+  const db = getDb();
+  const snap = await db.collection("matchLogs").where("status", "==", "completed").limit(300).get();
+  const positive = snap.docs
+    .map(d => d.data())
+    .filter(l => l.outcome && (l.outcome.sentiment === "positive" || l.outcome.attended === true || l.outcome.would_repeat === true))
+    .sort((a, b) => (b.outcomeReceivedAt?.toMillis?.() ?? 0) - (a.outcomeReceivedAt?.toMillis?.() ?? 0));
+
+  // This member's own successes first, then everyone else's.
+  const own = memberId ? positive.filter(l => l.memberId === memberId) : [];
+  const rest = positive.filter(l => !memberId || l.memberId !== memberId);
+  const ordered = [...own, ...rest].slice(0, limit);
+
+  return ordered.map(l => ({
+    from: l.memberName || null,
+    to: l.matchedMemberName || null,
+    reason: l.reason || null,
+    why_it_worked: l.outcome?.summary || null,
+  }));
+}
+
 export async function loadMatchLogs({ memberId, status, limit = 100 } = {}) {
   const db = getDb();
   let q = db.collection("matchLogs");

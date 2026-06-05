@@ -1,6 +1,24 @@
-import { createMatchLog, loadMatchLogs } from "./lib/matchLog.js";
+import { createMatchLog, loadMatchLogs, recordOutcome } from "./lib/matchLog.js";
 import { loadMember } from "./lib/db.js";
 import { isAdminAuthorized } from "./lib/adminAuth.js";
+
+// Build a structured outcome from a convener's one-tap verdict, shaped like
+// the GPT-extracted outcomes the followup loop produces — so in-context
+// learning and the future re-ranker consume convener-labeled and
+// member-replied outcomes identically.
+function convenerOutcome(verdict, note) {
+  const worked = verdict === "worked";
+  return {
+    attended: worked,
+    sentiment: worked ? "positive" : "negative",
+    reasons_positive: [],
+    reasons_negative: [],
+    would_repeat: worked,
+    implicit_profile_updates: {},
+    summary: note || (worked ? "Convener marked this intro as worked." : "Convener marked this intro as didn't pan out."),
+    recordedBy: "convener",
+  };
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +47,25 @@ export const handler = async (event) => {
     }
 
     if (event.httpMethod === "POST") {
-      const { memberId, matchedMemberId, reason, channel } = JSON.parse(event.body);
+      const payload = JSON.parse(event.body);
+
+      // Convener outcome-logging: record how an intro went, directly on an
+      // existing matchLog. Marks it completed so it becomes a labeled
+      // training example without waiting for the 48h followup loop.
+      if (payload.matchLogId && payload.verdict) {
+        if (!["worked", "didnt"].includes(payload.verdict)) {
+          return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "verdict must be 'worked' or 'didnt'" }) };
+        }
+        const outcome = convenerOutcome(payload.verdict, payload.note);
+        await recordOutcome(payload.matchLogId, { raw: payload.note ?? null, outcome });
+        return {
+          statusCode: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ ok: true, id: payload.matchLogId, outcome }),
+        };
+      }
+
+      const { memberId, matchedMemberId, reason, channel } = payload;
       if (!memberId || !matchedMemberId) {
         return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "memberId and matchedMemberId required" }) };
       }
