@@ -30,12 +30,16 @@ function mapShopifyProduct(p, memberId, memberName) {
 }
 
 // Map a Square catalog ITEM object → a marketplace `products` row.
-// Square prices are integer cents in price_money.amount.
-function mapSquareItem(obj, memberId, memberName) {
+// Square prices are integer cents in price_money.amount. Item images are
+// separate IMAGE catalog objects referenced by item.image_ids; `imageMap`
+// resolves the first one to a URL (built from the IMAGE objects in the same
+// ListCatalog response — see handler).
+function mapSquareItem(obj, memberId, memberName, imageMap = {}) {
   const item = obj.item_data || {};
   const variation = Array.isArray(item.variations) ? item.variations[0] : null;
   const priceMoney = variation?.item_variation_data?.price_money;
   const cents = priceMoney?.amount != null ? Number(priceMoney.amount) : 0;
+  const imageId = Array.isArray(item.image_ids) ? item.image_ids[0] : null;
   return {
     member_id: memberId,
     member_name: memberName,
@@ -43,7 +47,7 @@ function mapSquareItem(obj, memberId, memberName) {
     description: item.description || null,
     price: cents / 100,
     currency: priceMoney?.currency || "USD",
-    image_url: null, // Square image objects require a second lookup; deferred
+    image_url: (imageId && imageMap[imageId]) || null,
     active: true,
     source: "square",
     external_id: String(obj.id),
@@ -94,9 +98,16 @@ export const handler = async (event) => {
       const products = data?.products || data?.items || (Array.isArray(data) ? data : []);
       rows = products.map((p) => mapShopifyProduct(p, memberId, memberName));
     } else if (platform === "square") {
-      const data = await runTool(TOOL_SLUGS.square.list, memberId, { types: "ITEM" });
-      const objects = (data?.objects || data?.items || []).filter((o) => o.type === "ITEM");
-      rows = objects.map((o) => mapSquareItem(o, memberId, memberName));
+      // Pull ITEM + IMAGE together so we can resolve item.image_ids → URL in
+      // one call instead of a per-item lookup.
+      const data = await runTool(TOOL_SLUGS.square.list, memberId, { types: "ITEM,IMAGE" });
+      const all = data?.objects || data?.items || [];
+      const imageMap = {};
+      for (const o of all) {
+        if (o.type === "IMAGE" && o.image_data?.url) imageMap[o.id] = o.image_data.url;
+      }
+      const objects = all.filter((o) => o.type === "ITEM");
+      rows = objects.map((o) => mapSquareItem(o, memberId, memberName, imageMap));
     }
 
     if (rows.length) {
