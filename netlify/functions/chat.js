@@ -1,17 +1,13 @@
 import OpenAI from "openai";
 import { buildSystemPrompt, isOnboarded } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
-import { saveMember, loadMember, saveSubscriptions } from "./lib/db.js";
+import { saveMember, loadMember } from "./lib/db.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
-import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
-import { enrichProfile, hasEnrichableData } from "./lib/enrich.js";
-import { buildSubscriptionsFromProfile, hasNewSubscriptionData } from "./lib/subscriptions.js";
-import { parseGoogleMapsUrl } from "./lib/parseLocation.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations, runConnectorSearch } from "./lib/recommend.js";
 import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
-import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
+import { enqueuePostSave } from "./lib/triggerPostSave.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -142,48 +138,11 @@ export const handler = async (event) => {
           const updatedHistory = capHistory([...cappedMessages, { role: "assistant", content: finalReply }]);
           await saveMember(sessionId, { history: updatedHistory, meta: { source: "web" } });
 
-          if (hasNewSubscriptionData(profileUpdate)) {
-            const subs = buildSubscriptionsFromProfile(member.profile);
-            if (subs.length) {
-              saveSubscriptions(sessionId, subs).catch(err =>
-                console.error("Subscription save error:", err)
-              );
-            }
-          }
-
-          if (profileUpdate?.googleMapsUrl && !member.profile.latitude) {
-            parseGoogleMapsUrl(profileUpdate.googleMapsUrl).then(async (coords) => {
-              if (coords) {
-                await saveMember(sessionId, { profileUpdate: coords });
-              }
-            }).catch(err => console.error("Location parse error:", err));
-          }
-
-          if (shouldCrossRef(member.profile)) {
-            runCrossRefVerify(sessionId, member.profile).catch(err =>
-              console.error("Cross-ref verify error:", err)
-            );
-          }
-
-          if (hasEnrichableData(profileUpdate) && !member.profile.enrichedAt) {
-            enrichProfile(member.profile).then(async (enriched) => {
-              if (!enriched) return;
-              const safeFields = {};
-              for (const [k, v] of Object.entries(enriched)) {
-                if (v != null && !member.profile[k]) safeFields[k] = v;
-              }
-              if (Object.keys(safeFields).length) {
-                await saveMember(sessionId, { profileUpdate: { ...safeFields, enrichedAt: new Date().toISOString() } });
-              }
-            }).catch(err => console.error("Background enrich error:", err));
-          }
-
-          if (isReadyToSync(member.profile)) {
-            const result = await syncToProlocaliq(sessionId, member.profile);
-            if (result?.status === "created" || result?.status === "already_exists") {
-              await saveMember(sessionId, { profileUpdate: { prolocaliqSynced: true, prolocaliqAccountId: result.businessAccountId ?? null } });
-            }
-          }
+          // Heavy background work (subscriptions, location parse, cross-ref
+          // verification, enrichment, prolocaliq sync) runs in a Trigger.dev
+          // task so it survives past the Netlify function returning. The task
+          // reloads the member and decides which steps to run.
+          await enqueuePostSave(sessionId, profileUpdate, "web");
         }
       } catch (err) {
         console.error("Save/embed error:", err);

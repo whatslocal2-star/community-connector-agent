@@ -6,11 +6,10 @@ import { loadConversation, loadMember, saveMember, getDb } from "./lib/db.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { parsePriceRange, normalizePricePerProduct } from "./lib/priceParse.js";
-import { syncToProlocaliq, isReadyToSync } from "./lib/syncToProlocaliq.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
 import { shouldRecommend, makeFirstRecommendations, runConnectorSearch } from "./lib/recommend.js";
-import { shouldCrossRef, runCrossRefVerify } from "./lib/verifyCrossRef.js";
+import { enqueuePostSave } from "./lib/triggerPostSave.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MAX_HISTORY = 20;
@@ -193,18 +192,10 @@ export const handler = async (event) => {
           }
         }
 
-        if (shouldCrossRef(member.profile)) {
-          runCrossRefVerify(fromNumber, member.profile).catch(err =>
-            console.error("Cross-ref verify error:", err)
-          );
-        }
-
-        if (isReadyToSync(member.profile)) {
-          const result = await syncToProlocaliq(fromNumber, member.profile);
-          if (result?.status === "created" || result?.status === "already_exists") {
-            await saveMember(fromNumber, { profileUpdate: { prolocaliqSynced: true, prolocaliqAccountId: result.businessAccountId ?? null } });
-          }
-        }
+        // Heavy background work runs in a Trigger.dev task so it survives
+        // past this webhook returning (cross-ref verification, prolocaliq
+        // sync, etc.). See trigger/post-save-pipeline.ts.
+        await enqueuePostSave(fromNumber, profileUpdate, "sms");
       }
     } catch (err) {
       console.error("Embed/recommend error:", err);

@@ -17,15 +17,19 @@ import { saveMember } from "./db.js";
 
 const THRESHOLD = 0.7;
 
+// Member types that have a public-facing identity worth cross-referencing.
+// Shoppers don't run a business / public presence, so there's nothing to
+// verify against — skip them. (Previously the gate was tangled around the
+// rarely-set `businessName` field and special-cased only vendors, which meant
+// artists/organizers/influencers with 2+ channels were ALWAYS skipped.)
+const VERIFIABLE_TYPES = new Set(["vendor", "artist", "organizer", "influencer"]);
+
 export function shouldCrossRef(profile) {
   if (!profile) return false;
-  if (profile.ownershipVerification) return false;
-  if (!profile.name || !profile.businessName) {
-    // Need at least the business identity to verify against.
-    if (!(profile.name && profile.memberType === "vendor")) return false;
-  }
-  const channels = countChannels(profile);
-  return channels >= 2;
+  if (profile.ownershipVerification) return false;        // already verified
+  if (!profile.name) return false;                         // need an identity to verify
+  if (!VERIFIABLE_TYPES.has(profile.memberType)) return false;
+  return countChannels(profile) >= 2;                      // need ≥2 channels to cross-reference
 }
 
 function countChannels(profile) {

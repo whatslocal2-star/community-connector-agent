@@ -14,6 +14,10 @@ export function getDb() {
   return getFirestore();
 }
 
+/**
+ * @param {string} id
+ * @returns {Promise<{ id: string, profile?: Record<string, any>, [k: string]: any } | null>}
+ */
 export async function loadMember(id) {
   const db = getDb();
   const doc = await db.collection("members").doc(id).get();
@@ -85,7 +89,11 @@ export async function loadAllActiveSubscriptions() {
   return results;
 }
 
-export async function saveMember(id, { history, profileUpdate, meta = {} }) {
+/**
+ * @param {string} id
+ * @param {{ history?: any[], profileUpdate?: Record<string, any> | null, meta?: Record<string, any> }} [opts]
+ */
+export async function saveMember(id, { history, profileUpdate, meta = {} } = {}) {
   const db = getDb();
   const ref = db.collection("members").doc(id);
 

@@ -18,8 +18,8 @@ This project serves as the **signup + data layer** for the Community Marketplace
 8. **Recommendation step (mode-dependent):**
    - *Onboarding mode:* if `shouldRecommend(profile)` (name + memberType + ≥2 substantive fields, `firstRecsMadeAt` unset), run `makeFirstRecommendations` — search top 3 via `searchMembers({parseIntent:false})` excluding self, write a matchLog per candidate, GPT-write a natural blurb, append to reply, set `firstRecsMadeAt`. One-shot per member — this is the LAST onboarding turn; the next turn flips to connector mode.
    - *Connector mode:* if the model emitted a `searchQuery`, run `runConnectorSearch` — real `searchMembers({parseIntent:true})` over the directory, a matchLog per candidate (reason = the query + matchedOn breadcrumbs), 2nd GPT pass writes a warm intro blurb, appended to reply. Graceful "couldn't find a match yet" fallback when empty. No searchQuery = ordinary connector chat.
-9. Post-save pipeline (fire-and-forget): subscriptions, cross-reference verification (Gemini, when ≥2 contact channels captured), enrichment, prolocaliq sync
-10. Save final reply + history; return to client
+9. Save final reply + history
+10. **Enqueue post-save pipeline:** `enqueuePostSave(memberId, profileUpdate, channel)` fires the `post-save-pipeline` Trigger.dev task (subscriptions, Google Maps → lat/lng, cross-reference verification, enrichment, prolocaliq sync). This used to be fire-and-forget promises inside the function — Netlify killed them mid-flight once the response returned, so network-bound steps (Gemini/Jina/Places) rarely completed. Now they run reliably in Trigger.dev. Return to client.
 
 **Two personality modes (`lib/systemPrompt.js`):**
 - **Onboarding mode** (`ONBOARDING_PROMPT`) — warm neighbor doing a guided interview; aggressive structured data capture. Used until first recs fire.
@@ -71,7 +71,8 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `netlify/functions/claim-profile.js` | Admin: POST `{unclaimedId, claimedBy?, fields?}` — flip a harvested profile to `claimed` |
 | `netlify/functions/verify.js` | Admin: GET `?memberId=` lists available methods + current state; POST `{memberId, method, value}` runs ownership verification (Places API / Firecrawl / IG match / Gemini fallback) and writes `profile.ownershipVerification` on success |
 | `netlify/functions/lib/verify.js` | Verification engine — ported from marketplace `feat/vendor-verification` branch; single source of truth for both apps |
-| `netlify/functions/lib/verifyCrossRef.js` | Onboarding-time cross-reference verification: when ≥2 contact channels (website / GMaps / IG / phone) captured, fires Gemini grounded check asking if all channels describe the same business; writes `profile.ownershipVerification` with confidence 0–1. Fire-and-forget from chat/sms. |
+| `netlify/functions/lib/verifyCrossRef.js` | Onboarding-time cross-reference verification: when a verifiable member type (vendor/artist/organizer/influencer) has ≥2 contact channels (website / GMaps / IG / phone), fires Gemini grounded check asking if all channels describe the same business; writes `profile.ownershipVerification` with confidence 0–1. Invoked from the `post-save-pipeline` Trigger task. |
+| `netlify/functions/lib/triggerPostSave.js` | `enqueuePostSave(memberId, profileUpdate, channel)` — fires the `post-save-pipeline` Trigger.dev task from chat/sms. Swallows errors (e.g. missing `TRIGGER_SECRET_KEY` in local dev) so chat never fails on it. |
 | `netlify/functions/lib/matchLog.js` | Firestore CRUD for `matchLogs` collection |
 | `netlify/functions/lib/extractOutcome.js` | GPT outcome extractor — turns NL feedback into structured signal |
 | `netlify/functions/lib/parseLocation.js` | Extracts lat/lng from Google Maps URLs (all formats + short links) |
@@ -88,6 +89,7 @@ Onboarding → rich profile → first recommendations (3 matchLogs) → 48h `fol
 | `trigger/harvest-events.ts` | Daily cron job — scrape subscribed channels, detect + reword events |
 | `trigger/followup-intros.ts` | Hourly cron — send 48h follow-up on pending matchLogs, route reply through `extractOutcome` |
 | `trigger/harvest-oakland.ts` | Weekly cron — harvest Oakland businesses from Google Places, GPT-enrich, store as `status:"unclaimed"` |
+| `trigger/post-save-pipeline.ts` | Event task (triggered per chat/sms turn) — reloads the member, then runs subscriptions, location parse, cross-ref verify, enrichment, prolocaliq sync. Imports the netlify `lib/*` functions directly. Replaces the old fire-and-forget blocks that Netlify killed. |
 
 **Firestore collections:**
 
@@ -167,7 +169,7 @@ createdAt, updatedAt
 - **Location capture:** vendors/organizers asked for Google Maps link → saved as `googleMapsUrl` → `parseLocation.js` extracts `latitude`/`longitude` in background post-save. Supports all URL formats + `maps.app.goo.gl` short links. Run `backfill-locations` (admin) to parse existing records missing coords.
 
 ## Environment Variables (Netlify)
-`OPENAI_API_KEY`, `FIREBASE_PROJECT_ID` (`whatlocal-ab06e`), `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\\n`), `ADMIN_TOKEN`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` (default: `community-members`)
+`OPENAI_API_KEY`, `FIREBASE_PROJECT_ID` (`whatlocal-ab06e`), `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (escaped `\\n`), `ADMIN_TOKEN`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME` (default: `community-members`), `TRIGGER_SECRET_KEY` (Trigger.dev API key — lets chat/sms enqueue the `post-save-pipeline` task; without it `enqueuePostSave` logs and no-ops, so the post-save background steps silently don't run)
 
 **Profile enrichment:**
 - `GOOGLE_PLACES_API_KEY` — Google Places API key for business lookups (optional; enrichment works without it using website-only scraping via Jina Reader)
@@ -183,7 +185,9 @@ createdAt, updatedAt
 
 **Trigger.dev (v4, project `xeno` / `proj_xlqnddtyofcgtvjudspi` under `xen-209f` org):**
 - Deploy: `npx trigger.dev@latest deploy` (must match `@trigger.dev/sdk` v4.x pinned in package.json)
-- Env vars set in Trigger.dev dashboard mirror Netlify: `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER` (for follow-up SMS), `GOOGLE_PLACES_API_KEY` (for Oakland harvest)
+- Env vars set in Trigger.dev dashboard mirror Netlify: `OPENAI_API_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER` (for follow-up SMS), `GOOGLE_PLACES_API_KEY` (Oakland harvest + location parse), `GEMINI_API_KEY` (cross-ref verify), `FIRECRAWL_API_KEY`, `PROLOCALIQ_URL`, `CC_SYNC_TOKEN` (the `post-save-pipeline` task runs enrichment / cross-ref / prolocaliq sync, so it needs the same keys those steps use)
+- `TRIGGER_SECRET_KEY` must be set in **Netlify** (not Trigger.dev) so chat/sms can enqueue tasks
+- `post-save-pipeline.ts` imports the netlify `lib/*.js` modules directly — they're lazy-init (firebase `getApps()` guard, lazy OpenAI client), so they bundle and run cleanly inside Trigger
 - `trigger.config.ts` requires `runtime: "node-22"` and `maxDuration: 600`
 
 ## Recent Decisions
@@ -206,6 +210,7 @@ createdAt, updatedAt
 - **Trigger.dev v4 migration done** (was v3); import is `@trigger.dev/sdk` (not `/v3`), runtime `node-22`, project ref `proj_xlqnddtyofcgtvjudspi`. Pin the SDK exactly to whatever v4.x the CLI ships (caret ranges fail "Invalid Version").
 - **Ownership verification engine ported from marketplace** — `lib/verify.js` is the single source of truth. Both apps call `/verify` here. Methods: phone (Google Places API), website_email (Firecrawl scrape + regex), instagram (handle match), gemini (Gemini 2.0 Flash with grounded search) as catch-all. Structured methods escalate to Gemini automatically on failure. Saves `profile.ownershipVerification` on success.
 - **Structured search is live** — manifesto's "better than Google Maps" promise. Onboarding captures `pricePerProduct: [{name, price}]`, `amenities[]`, `atmosphere[]`, and booleans (acceptsEBT, openLate, wheelchairAccessible, sportsBar, favoriteTeams, veganOptions, etc.). `priceRange` strings auto-parse to `priceMin`/`priceMax` numerics in chat/sms post-save. Pinecone metadata now carries every filterable field — hard filters run server-side (`$lte` / `$in` / `$nin`) instead of in-memory on top-K. Each search result returns `matchedOn[]` breadcrumbs (e.g. `["buzz cut $12 ≤ $15", "tv ✓"]`). Per-product price gate: when a query carries `product` + `priceMax`, the business must offer a semantically-matching item at-or-under the cap. 81 assertions pass: 38 unit (`npm test`) + 43 e2e (`npm run test:e2e`).
+- **Post-save background work moved to Trigger.dev** — subscriptions, location parse, cross-ref verification, enrichment, and prolocaliq sync used to run as fire-and-forget promises inside chat.js/sms.js. Netlify terminates the function as soon as the response is sent, so any network-bound step (Gemini, Jina, Google Places, OpenAI) was routinely killed before it finished. They now run in `trigger/post-save-pipeline.ts`, enqueued via `enqueuePostSave` (`lib/triggerPostSave.js`) once per turn. Requires `TRIGGER_SECRET_KEY` in Netlify. Fixed alongside this: the `shouldCrossRef` logic bug — the old gate was tangled around the rarely-set `businessName` field and special-cased only `vendor`, so artists/organizers/influencers with 2+ channels were ALWAYS skipped. Now gated on `VERIFIABLE_TYPES` (vendor/artist/organizer/influencer) + name + ≥2 channels.
 - **Onboarding vs connector personality split is live** — the monolithic `SYSTEM_PROMPT` is now two prompts in `lib/systemPrompt.js`: `ONBOARDING_PROMPT` (warm guided interview) and `CONNECTOR_PROMPT` (post-onboarding "friend who knows everyone"). `buildSystemPrompt(profile,{sms})` selects per-turn via `isOnboarded(profile)` (gated on `firstRecsMadeAt`). Connector mode is forbidden from inventing members — it emits a `searchQuery`, the server runs a real directory search (`runConnectorSearch`), logs matchLogs, and a 2nd GPT pass writes the intro. Conversational recommendation engine is now live, and every connector intro is another labeled matchLog feeding the self-improving loop. chat.js + sms.js both load the member up front to pick the mode.
 
 ## Production TODO
