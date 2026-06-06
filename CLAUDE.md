@@ -233,16 +233,32 @@ createdAt, updatedAt
 
 ## Production TODO
 
-### Commerce — Phase A outstanding (2026-06-05)
-Functions are built + merged to `main` (local, unpushed). All of the below gate go-live:
+### 🚀 Commerce go-live (2026-06-05) — ACTIVE GOAL
+Functions are built + merged to `main` (local, unpushed). The goal is to **take commerce live**. Ordered path:
+
+**1. Credentials + config (blocks everything):**
 - 🔴 **Fresh Composio key needed.** The `multiagent_mae` key (`composio-core`, legacy platform) 401s against `@composio/core`. Get a key from the current Composio dashboard → set `COMPOSIO_API_KEY`.
 - ⬜ **Create Composio auth configs** (dashboard → Auth Configs → New) for Shopify + Square → set `COMPOSIO_SHOPIFY_AUTH_CONFIG_ID` / `COMPOSIO_SQUARE_AUTH_CONFIG_ID`.
 - ⬜ **Set commerce env in Netlify:** `MARKETPLACE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (the functions write the shared `xeno` `products`/`vendor_settings`).
-- ⬜ **Verify the live loop** once the above are set: `npm run test:e2e:commerce` with `TEST_MEMBER_ID` (and `TEST_SMS_TO` / `TEST_PUSH_ORDER=1` to exercise the destructive paths). Confirms Shopify end-to-end (connect → sync → buy → push-back → SMS).
+
+**2. Verify the live loop:**
+- ⬜ **Run** `npm run test:e2e:commerce` with `TEST_MEMBER_ID` (and `TEST_SMS_TO` / `TEST_PUSH_ORDER=1` to exercise the destructive paths). Confirms Shopify end-to-end (connect → sync → buy → push-back → SMS).
 - ⬜ **Verify Square `SQUARE_CREATE_ORDER` arg schema** in the dashboard — push-back is wired but unverified.
-- ⬜ **Deactivate removed products** — `composio-sync` only upserts; items deleted from the source catalog linger as `active` in Supabase. Mark missing `external_id`s inactive after a sync.
+
+**3. Catalog freshness (do as ONE change — only worth it once vendors connect):**
+- ⬜ **Extract a shared `syncVendorCatalog(memberId)`** out of `composio-sync.js` (logic is currently trapped in the HTTP handler) so both the endpoint and a cron can call it.
+- ⬜ **Deactivate removed products** in that shared fn — `composio-sync` only upserts; items deleted from the source catalog linger as `active` in Supabase. Mark `external_id`s missing from the live pull inactive after each sync.
+- ⬜ **Add daily catalog re-sync cron** (`trigger/sync-composio-catalogs.ts`, ~3am) — loop `vendor_settings` where `composio_connection_id` is set, call the shared fn per vendor. Keeps the storefront fresh when vendors change prices/inventory after connecting. (A first draft existed on the dead `feat/commerce-layer` branch against the old SDK — rewrite against `runTool`.)
+
+**4. Ship:**
 - ⬜ **Push** connector-agent `main` (5 commits ahead of origin) — held until the live run passes, by request.
 - 🚫 Toast — out of scope (no Composio toolkit).
+
+### Stale branches — NOT needed, do not merge (confirmed 2026-06-05)
+3 unmerged branches still exist but carry nothing we need; left in place (not deleted) by request:
+- `feat/commerce-layer` — old (2026-05-18) first-draft commerce against the legacy `composio-core` SDK; **superseded** by today's `@composio/core` rebuild on main. Its only two branch-only files (`composio-callback.js`, `trigger/sync-composio-catalogs.ts`) import a `syncVendorCatalog()` that no longer exists — not mergeable. The daily-resync idea is already captured in the go-live step 3 above.
+- `feat/observability-stack` (local + `origin`) — **superseded**; `observability.js` is byte-identical on main and the handlers/crons are equally or more instrumented.
+- `hjxkitchen/claude/recommendations-scalability-F2gpt` (remote only) — adds only two strategy-conversation transcripts under `docs/`; not wanted in the repo.
 
 ### Pre-launch trust + abuse hardening (2026-06-05)
 - ✅ **Rate limiting** (`lib/rateLimit.js`) — Firestore fixed-window limiter on the public unauthenticated endpoints: `/chat` 30/min/IP, `/search` 60/min/IP. Plus a per-member throttle on `/verify` (12/hr/member) so the claim form can't brute-force a phone/handle or run up Places/Gemini spend. Fails open on limiter error. Was previously NONE — a curl loop = real cost + the Firestore-quota 500s seen on 2026-05-18.
