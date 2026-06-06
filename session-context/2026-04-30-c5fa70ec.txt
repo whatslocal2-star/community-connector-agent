@@ -1,0 +1,23 @@
+Session: c5fa70ec-2fb3-4fab-a405-b50f44451394
+Source: /Users/xen/Documents/ClaudeSessions/-Users-xen-Desktop-dev-community-connector-agent/c5fa70ec-2fb3-4fab-a405-b50f44451394.jsonl
+============================================================
+
+Turn 1 [USER]:
+we need to add multiagent_mae functinlaity into this comuincty connecto agent app, and in turn into porloxcal iq server,
+
+Turn 2 [ASSISTANT]:
+Let me look at the projects index and current codebase to understand the full scope before planning this.
+
+Turn 3 [ASSISTANT]:
+Now let me explore the `multiagent_mae` project to understand what functionality it has.
+
+Turn 4 [ASSISTANT]:
+Good — I have full context on both systems. Before planning this integration, I need to understand which parts of `multiagent_mae` you want in community-connector-agent. It has several distinct capabilities:
+
+1. **Voice/Vapi** — inbound call handling, STT/TTS, Claude AI during calls
+2. **Multi-tenant model** — tenants get phone numbers from a shared pool, admin UI to manage agents/bookings
+3. **Tool-based AI** — structured `book_appointment` tool call (vs. current JSON-mode)
+4. **Email automation** (Resend) — the email layer that's already built
+
+Are you looking to add all of these, or specifically the voice layer (so community members can be onboarded via phone calls, not just web/SMS)? And for prolocaliq — is the goal to surface a voice-enabled chat widget and booking flow in the prolocaliq UI?
+

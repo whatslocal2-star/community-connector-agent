@@ -1,0 +1,18 @@
+Session: 3fd2476b-9c38-40b7-8587-1f8c847f6da1
+Source: /Users/xen/.claude/projects/-Users-xen-Desktop-dev-community-connector-agent/3fd2476b-9c38-40b7-8587-1f8c847f6da1.jsonl
+============================================================
+
+Turn 1 [USER]:
+see how we disucessed an aggreagte marketplace in manifesto in dektop.. and we have simliar in proloclaiq project where we have uber and stripe etc stack for marketplace... lets make it here as well as we discussed with composio linking to pos shopfym internal tools, etc,...
+
+Turn 2 [ASSISTANT]:
+Before I start building, I want to lock in scope — what you're describing is several features stacked (aggregate marketplace = inventory across vendors, Composio = integration glue to pull from Shopify/Square/POS, plus probably Stripe Connect for split payments like prolocaliq has).
+
+A quick read of the lay of the land:
+- **manifesto** is mostly about the matching/learning loop, not aggregate commerce — so I want to make sure I'm building what you mean
+- **prolocaliq** already has: `stripe-connect-service.ts`, `pos-service.ts`, `payout-scheduler.ts`, DoorDash Drive integration, POS detection. That's the Uber/Stripe-style stack you're referring to.
+- **community-connector-agent** today is profile + matching + events. No commerce layer, no product/inventory model, no Composio.
+
+Turn 3 [USER]:
+[Request interrupted by user for tool use]
+

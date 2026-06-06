@@ -1,0 +1,7 @@
+Session: 23d2eafa-d865-4fb9-a30d-1144e6d9013f
+Source: /Users/xen/.claude/projects/-Users-xen-Desktop-dev-community-connector-agent/23d2eafa-d865-4fb9-a30d-1144e6d9013f.jsonl
+============================================================
+
+Turn 1 [USER]:
+should be 31 sesssions in ~/.claude/projects/-Users-xen-Desktop-dev-community-connector-agent/
+

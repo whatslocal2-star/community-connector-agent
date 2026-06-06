@@ -1,0 +1,447 @@
+Session: f8ca10a5-1d5e-4748-b6f8-fb0287958a5e
+Source: /Users/xen/.claude/projects/-Users-xen-Desktop-dev-community-connector-agent/f8ca10a5-1d5e-4748-b6f8-fb0287958a5e.jsonl
+============================================================
+
+Turn 1 [USER]:
+So what are the last recent changes we made
+
+Turn 2 [ASSISTANT]:
+Here's a summary of the most recent work:
+
+1. **`perf: paginated marketplace-members Firestore query`** — Fixed a performance issue by paginating the Firestore query in the `marketplace-members` function instead of loading all members at once.
+
+2. **`chore: one-shot script to set Cache-Control on Spaces business images`** — A utility script to add proper cache headers to business images stored in DigitalOcean Spaces.
+
+3. **`feat: backfill imported member images from prolocaliq DO Spaces`** — Backfilled profile images for the 394 SF legacy businesses imported from ProLocalIQ's DO Spaces bucket.
+
+4. **`feat: public /marketplace-search endpoint`** — Added a thin public wrapper around `searchMembers` so the marketplace frontend can call it directly.
+
+5. **`feat: import 394 SF legacy businesses + tighten search intent parser`** — Bulk-imported SF legacy business data and tightened the GPT intent parser to reduce over-filtering.
+
+The last few sessions were focused on the **data layer** — getting legacy SF businesses in, their images migrated over, and the marketplace search/browsing endpoints performant and public. What do you want to work on next?
+
+Turn 3 [USER]:
+Overall summary all done today. In natural paragraph format
+
+Turn 4 [ASSISTANT]:
+That's a massive day. Here's the full picture:
+
+The day started by closing out the self-improving feedback loop — adding outcome tracking to matchLogs, wiring up a 48-hour follow-up cron that pings members who received intro recommendations, and routing their replies through `extractOutcome` to produce structured signal that gets merged back into their profile. From there, unified natural-language search was built and shipped, giving both the public search bar and the internal recommendation pipeline a single function backed by a GPT intent parser.
+
+With the core loop in place, the focus shifted to making the network proactively useful before anyone signs up. A weekly Oakland harvest cron was added that scrapes Google Places, GPT-enriches each business, and stores them as unclaimed profiles in Firestore and Pinecone — so new members arrive to an already-populated marketplace rather than an empty one. A stub `/claim-profile` endpoint was added alongside it.
+
+The recommendation engine was then wired up end-to-end: the agent now surfaces first recommendations mid-conversation once a profile is rich enough, writes a matchLog per candidate, and appends a natural blurb to the reply. A bug was also fixed where intent parsing was incorrectly running on recommendation queries and over-filtering results.
+
+On the infrastructure side, Trigger.dev was migrated from v3 to v4 and the SDK was pinned to a stable version to prevent caret-range breakage. The self-improving loop and new crons were documented in CLAUDE.md.
+
+The afternoon was heavy on data quality. Structured search was built out with per-product price filtering, amenity hard filters, and boolean flags (EBT, open late, wheelchair accessible, etc.) all pushed down to Pinecone metadata so results are filtered before semantic ranking ever runs. Cross-reference verification was added at onboarding time — when a member provides two or more contact channels, Gemini runs a grounded check to confirm they all describe the same business. A full ownership verification engine was also ported from the marketplace branch, with methods escalating from Google Places → Firecrawl → Instagram handle match → Gemini fallback.
+
+The final stretch was about population and polish. 394 SF legacy businesses were imported from ProLocalIQ, the search intent parser was tightened to reduce over-aggressive filtering on that larger dataset, a public `/marketplace-search` endpoint was added as a thin wrapper for the marketplace frontend, member images were backfilled from the ProLocalIQ DO Spaces bucket, Cache-Control headers were set on those images, and the `marketplace-members` Firestore query was paginated to handle the now much larger member count without loading everything into memory.
+
+Turn 5 [USER]:
+Community connectors
+Conversations
+Connections intro recommendations
+Search community collbaratiosn
+
+Events.
+
+Search
+Marketplace 
+Tools 
+
+
+
+ So if this is a road map, is it safe to say we are now safely into the marketplace and tools, and that's where kind of the next state... stage of building is?
+
+Turn 6 [ASSISTANT]:
+Yeah, that's a fair read. Looking at what's actually shipped:
+
+Everything from **Community Connectors through Events** is essentially done — onboarding is live, conversations work over web and SMS, the intro recommendation loop is closed end-to-end with outcome tracking, structured search is running, and the events harvest pipeline is in production with admin review.
+
+**Marketplace** is live and populated — browse, map view, profile pages, public search, 394+ SF businesses already in there, images backfilled. It's not just scaffolding, it's real.
+
+**Tools** is where the current edge is — verification engine, claim-profile, admin dashboard, backfill scripts, the observability stack that's still pending env vars. That's clearly the active frontier.
+
+So yes — the next stage is less about building the core product and more about making it trustworthy and operable at scale: trust signals (verification), discovery quality (better search tuning, more harvest coverage), and the operator layer (observability, admin tooling, moderation flows). The "build the network" phase is behind you. The "run the network well" phase is what's next.
+
+Turn 7 [USER]:
+By marketplace and tooling I meant products. Delivery with uber. Payment with stripe. Connect to their Shopify /square inventory POs with composition em for catalog inventory and sending sales
+
+Turn 8 [ASSISTANT]:
+Got it — that's a fundamentally different level. You're talking about turning the marketplace from a **discovery layer** into a **transaction layer**. That's the jump from "find each other" to "do business with each other" without leaving the platform.
+
+The three pillars as I understand them:
+
+**Payments (Stripe)** — vendors get a Stripe Connect account, buyers checkout through the platform, you take a cut or charge a subscription. Payouts flow directly to the vendor.
+
+**Delivery (Uber Direct)** — local on-demand delivery attached to a completed order. Vendor confirms, Uber picks up, buyer tracks. You're essentially a dispatch layer on top of Uber's courier network.
+
+**Inventory/POS sync (Shopify + Square)** — vendors who already run Shopify or Square don't re-enter their catalog manually. You pull their products, prices, and stock in real time. Orders placed on your platform push back as sales so their inventory stays consistent. "Composition" here is probably building the unified catalog view across multiple vendor sources.
+
+This is a significant architectural expansion — you'd be adding order state, payment webhooks, fulfillment tracking, and inventory sync on top of what's currently a profile + search + discovery system. The community connector becomes the acquisition and trust layer; this becomes the commerce engine on
+
+Turn 9 [USER]:
+[Request interrupted by user]
+
+Turn 10 [USER]:
+Composio not composition
+
+Turn 11 [ASSISTANT]:
+Ah, **Composio** — that makes much more sense. Composio handles the OAuth + API integrations with Shopify, Square, and hundreds of other tools out of the box, so you're not hand-rolling each connector. You authenticate once through Composio and it manages the credentials and API calls for pulling catalog data, syncing inventory, and pushing sales back.
+
+So the stack becomes:
+
+**Composio** — unified integration layer for Shopify/Square (auth, catalog pull, order push, inventory sync)
+
+**Stripe Connect** — payments and payouts between buyers, vendors, and the platform
+
+**Uber Direct** — on-demand local delivery triggered post-payment
+
+That's actually a clean architecture — Composio solves the hardest part (keeping N vendor integrations from becoming N maintenance burdens), Stripe handles money movement, and Uber handles last-mile. The community connector and marketplace you've already built become the top of the funnel that feeds into this commerce layer.
+
+Want to start scoping which of the three to tackle first?
+
+Turn 12 [USER]:
+Yes let’s plan this implementation out
+
+Turn 13 [ASSISTANT]:
+This is a thorough plan. Here's the phased breakdown:
+
+---
+
+## Phase 1: Order Persistence (Start Here — Everything Depends On It)
+
+The current checkout creates a payment but throws away the order. Fix `confirm-payment` to write a real `orders` row to Supabase, add `payment_intent.succeeded` to the Stripe webhook for durability. Also add a `vendor_settings` table now so Phases 2 and 3 have a home. This unlocks the vendor orders dashboard, and makes Composio sync-back and Uber dispatch possible.
+
+## Phase 2: Composio — Catalog Sync (Can Run in Parallel with Phase 3)
+
+Vendors connect Shopify or Square via a Composio Magic Link OAuth flow in the vendor dashboard. Composio pulls their product catalog into the existing Supabase `products` table (adding `source` and `external_id` columns). A Trigger.dev daily job keeps catalogs fresh. After a paid order, Composio pushes it back to Shopify/Square so inventory stays accurate. The key gotcha: store Shopify variant IDs on products at sync time, otherwise the push-back has nothing to reference.
+
+## Phase 3: Uber Direct — Delivery (Can Run in Parallel with Phase 2)
+
+The biggest new UX surface is **buyer address collection** — currently checkout collects none. The plan: collect it post-payment in a "Request Delivery?" modal so it doesn't add friction to pickup-only buyers. Dispatch doesn't happen immediately — it fires when the vendor clicks "Mark Ready" in their orders dashboard. Uber quotes the fee upfront before the buyer commits. Webhooks from Uber drive SMS notifications to the buyer via the existing Telnyx integration.
+
+## Phase 4: Vendor Dashboard Polish
+
+Once transactions, catalog, and delivery are live — complete the dashboard: real product CRUD, order history with CSV export, Stripe payout history via Express login link, Composio/Uber settings management.
+
+---
+
+**Phases 2 and 3 are independent once Phase 1 ships** — they can be built simultaneously. The critical first file to touch is `confirm-payment/route.ts` in the marketplace repo.
+
+Want to start on Phase 1 now?
+
+Turn 14 [USER]:
+And this will work ? Is good work?
+
+Turn 15 [ASSISTANT]:
+Honest answer: the architecture is solid, but I want to verify before committing — the plan references existing Stripe Connect code, Supabase tables, and a vendor dashboard in the marketplace repo that I haven't actually confirmed exist. Let me check before saying "yes, build on this."
+
+Turn 16 [ASSISTANT]:
+Good — the foundation is real. Stripe Connect, confirm-payment, Supabase migrations, vendor API — all exist. The plan isn't speculating. Now the honest assessment:
+
+**What's solid:**
+
+- **Stripe Connect** — already partially built and battle-tested by millions of marketplaces. This part will work cleanly.
+- **The phasing logic** — Phase 1 (orders table) genuinely does unlock everything else. The dependency chain is correct.
+- **Uber Direct** — real, production API used by major platforms. The flow (quote → vendor marks ready → dispatch → webhook → SMS) is exactly how it works.
+
+**Where to be cautious:**
+
+- **Composio** is newer and less battle-tested than the others. The Magic Link OAuth flow is real and works, but the exact action names (`SHOPIFY_GET_PRODUCTS` etc.) will need to be verified against their current docs — these change. Treat it as "probably right, verify before coding."
+- **Inventory push-back to Shopify is the hardest piece** — you need Shopify variant IDs stored at sync time or the push fails. Easy to get right if you plan for it, painful to retrofit.
+- **Uber Direct geographic coverage** — works great in Oakland/SF, but worth confirming your target neighborhoods are covered before promising it to vendors.
+- **Two databases (Firestore + Supabase)** adds operational complexity. The plan handles it correctly (catalog sync writes to Supabase via REST from the connector agent) but it's something to stay conscious of.
+
+**Overall:** Yes, this will work. The plan is grounded in what actually exists, the sequencing is correct, and all three APIs are production-grade. Phase 1 is low-risk and high-value on its own — even if you stopped after Phase 1 you'd have durable orders and a real vendor dashboard. Want to start there?
+
+Turn 17 [USER]:
+Yes. Do this on a new branch. And make commits after every phase
+
+Turn 18 [ASSISTANT]:
+Let me first read the key existing files before touching anything.
+
+Turn 19 [ASSISTANT]:
+Good — I have the full picture. Now implementing Phase 1. Let me do it all at once.
+
+Turn 20 [ASSISTANT]:
+Now add order + vendor_settings functions to `lib/vendor-connect.ts`:
+
+Turn 21 [ASSISTANT]:
+Now fix `create-payment-intent` to include price in metadata, then rewrite `confirm-payment`:
+
+Turn 22 [ASSISTANT]:
+Now add `payment_intent.succeeded` and `charge.refunded` to the Stripe webhook:
+
+Turn 23 [ASSISTANT]:
+Now the vendor orders API and page:
+
+Turn 24 [ASSISTANT]:
+Now I need to see the vendor layout to match the design language:
+
+Turn 25 [ASSISTANT]:
+Now update the vendor dashboard to show a real order count:
+
+Turn 26 [ASSISTANT]:
+Now verify it builds cleanly:
+
+Turn 27 [ASSISTANT]:
+Clean. Now commit Phase 1:
+
+Turn 28 [ASSISTANT]:
+Phase 1 committed. Now Phase 2 — Composio catalog sync. Let me check what's in the package.json first:
+
+Turn 29 [ASSISTANT]:
+Good. Now building Phase 2 — Composio catalog sync. This lives in the connector agent (has Trigger.dev) and writes to Supabase. I also need the vendor dashboard integration tab.
+
+Turn 30 [ASSISTANT]:
+Now build the Composio integration layer in the connector agent:
+
+Turn 31 [ASSISTANT]:
+Now the Supabase migration to add `source` and `external_id` to the products table, plus the daily Trigger.dev sync job:
+
+Turn 32 [ASSISTANT]:
+Now the vendor integrations page in the marketplace:
+
+Turn 33 [ASSISTANT]:
+Now add the Stripe webhook case to push orders back to Shopify after payment:
+
+Turn 34 [ASSISTANT]:
+TypeScript check and commit Phase 2:
+
+Turn 35 [ASSISTANT]:
+The `meta` variable is scoped inside the `if (!existing)` block but referenced outside it. Fix:
+
+Turn 36 [ASSISTANT]:
+Clean. Commit Phase 2:
+
+Turn 37 [ASSISTANT]:
+Now Phase 3 — Uber Direct. This is the most UX-intensive phase:
+
+Turn 38 [ASSISTANT]:
+Now building Phase 3 — Uber Direct. First the migration, then API routes, then the delivery request UI:
+
+Turn 39 [ASSISTANT]:
+Now a simple `sms-send` helper in the connector agent (the webhook uses it):
+
+Turn 40 [ASSISTANT]:
+No `lib/telnyx.js` — it's inline. Fix `sms-send.js` to use the same inline approach:
+
+Turn 41 [ASSISTANT]:
+Now the `DeliveryRequestModal` component — shown after payment succeeds on checkout:
+
+Turn 42 [ASSISTANT]:
+Now the `save-delivery` API route that the modal calls to persist address + quote to the order:
+
+Turn 43 [ASSISTANT]:
+Now update the vendor orders page to trigger dispatch (instead of just marking ready) when delivery is requested:
+
+Turn 44 [ASSISTANT]:
+Also update the Order interface in the orders page to include `delivery_requested`:
+
+Turn 45 [ASSISTANT]:
+Now wire the `DeliveryRequestModal` into the checkout success state. Need to update the checkout page to show it after payment:
+
+Turn 46 [ASSISTANT]:
+Now find where `onVendorPaid` is called in the card component and update the signature there too, then update the outer page state:
+
+Turn 47 [ASSISTANT]:
+Clean. Commit Phase 3:
+
+Turn 48 [ASSISTANT]:
+All three phases committed. Here's the full summary:
+
+---
+
+**Phase 1 — Order Persistence** ✅
+- `orders` + `vendor_settings` Supabase tables added via migration
+- `confirm-payment` now writes a durable order row (idempotent on retry)
+- `create-payment-intent` fixed to include price and fee breakdown in Stripe metadata
+- Stripe webhook handles `payment_intent.succeeded` (durability path) + `charge.refunded`
+- `/api/vendor/orders` GET/PATCH endpoint + `/vendor/orders` dashboard page with real order list and "Mark Ready" button
+- Vendor dashboard home shows real order count
+
+**Phase 2 — Composio Catalog Sync** ✅
+- `source` + `external_id` columns on products table with unique index for idempotent upserts
+- `lib/composio.js` in connector agent: Shopify + Square catalog pull, order push-back
+- 4 Netlify functions: `composio-connect` (Magic Link), `composio-callback` (OAuth redirect), `composio-sync` (manual pull), `composio-push-order` (inventory sync-back)
+- Daily Trigger.dev cron syncs all connected vendor catalogs at 3am
+- `/vendor/integrations` page in marketplace — connect Shopify/Square, sync now button, connection status
+
+**Phase 3 — Uber Direct Delivery** ✅
+- `delivery_address`, `delivery_fee_cents`, `uber_quote_id` added to orders
+- `lib/uber-direct.ts`: quote, dispatch, webhook signature verification
+- 4 API routes: quote, save-delivery, dispatch (vendor-authed), webhook (Uber → order status → buyer SMS)
+- `DeliveryRequestModal` shown after payment — collects address, shows fee quote, confirms
+- Vendor "Mark Ready" button auto-dispatches Uber when delivery was requested
+- `sms-send` utility endpoint in connector agent for cross-service notifications
+
+**New env vars needed before deploying:** `COMPOSIO_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `UBER_DIRECT_CUSTOMER_ID`, `UBER_DIRECT_SERVER_TOKEN`, `UBER_DIRECT_WEBHOOK_SECRET`, `CONNECTOR_URL` (marketplace → connector agent URL), `MARKETPLACE_URL` (connector agent → marketplace URL).
+
+Turn 49 [ASSISTANT]:
+Four natural directions from here:
+
+**Phase 4 — Vendor dashboard polish** (immediate, low effort): Real product CRUD replacing the demo data, Stripe payout history via Express login link, Uber/Composio settings management in `/vendor/settings`. Mostly wiring what's already built to real UI.
+
+**Buyer accounts + order history**: Right now buyers are anonymous — no way to see past orders, track deliveries, or get recommendations. Adding WorkOS auth for buyers (or email-only magic link) unlocks a buyer dashboard with order history and the delivery tracking page.
+
+**Observability** (documented TODO in CLAUDE.md): PostHog + Sentry env vars are unset. The funnel `profile_completed → first_recs_sent → outcome_received` dashboard doesn't exist yet. Low code, high signal — you'd actually see what's working.
+
+**Unclaimed profile claim flow**: The Oakland harvest built 500+ unclaimed profiles. Right now `/claim-profile` is a manual admin stub. A self-serve claim flow (vendor finds their business, verifies ownership, activates their account) turns that harvest into real acquisition.
+
+What feels most pressing to you?
+
+Turn 50 [USER]:
+For vendor sign in I think we have to change from work OS to Clark for vendors as well to make it simple. And now we could track orders in the vendor dashboard. The verification claim flow needs to also be fixed to work.
+
+Turn 51 [ASSISTANT]:
+Three solid tasks. Let me check the scope of the WorkOS usage before touching anything.
+
+Turn 52 [ASSISTANT]:
+Good picture. 11 files to touch. Let me check a few more things then build all three in parallel.
+
+Turn 53 [ASSISTANT]:
+Clerk is already installed. This is mostly a pattern swap. Let me build all three now.
+
+Turn 54 [ASSISTANT]:
+All three committed cleanly, zero TypeScript errors. Here's what shipped:
+
+**WorkOS → Clerk** — vendor routes now go through `clerkMiddleware` with `createRouteMatcher`. All 7 API routes and server components swapped to `auth()` from `@clerk/nextjs/server`. The auth callback route is deleted. Sign-in page embeds Clerk's `<SignIn />`. `vendor_profiles` column renamed to `clerk_user_id` via migration.
+
+**Order tracking** — the orders dashboard now auto-refreshes every 30 seconds, shows a "Delivery requested" teal badge, a prominent "Track with Uber" button when a tracking URL exists, a delivery fee line when set, and a "Confirm Delivered" button for dispatched orders.
+
+**Claim flow** — unclaimed profile pages show an amber "Is this your business?" banner linking to `/claim/[memberId]`. That page is a multi-step client component: sign in with Clerk → pick verification method (phone or Google Maps) → `/api/claim` proxies to the connector agent's `/verify` + `/claim-profile` endpoints server-side (token stays hidden) → success screen redirects to `/vendor/setup`.
+
+**New env vars needed before deploying:** `CONNECTOR_ADMIN_TOKEN` (for the claim API route to call connector functions with), `CONNECTOR_URL` (already needed from Phase 3).
+
+Turn 55 [USER]:
+update local claude md... now all auth is in clerk not workos? and its seprating shoppersa dn difrernt ytpes of vendors?
+
+Turn 56 [ASSISTANT]:
+Done. Key things captured in the updated CLAUDE.md:
+
+- **Auth is Clerk only** — WorkOS is gone, one auth system, one dashboard. Shoppers and vendors use the same Clerk instance differentiated by path (`/vendor/*`), not by provider. Clear note that `vendor_profiles` now uses `clerk_user_id`.
+- **Commerce layer documented** — all three phases (orders, Composio, Uber Direct), the order status lifecycle, and the Supabase table map.
+- **Claim flow** — self-serve path from unclaimed profile banner through `/claim/[memberId]` to vendor setup, no manual admin needed.
+- **Env vars** — WorkOS vars removed, new ones added (`CONNECTOR_URL`, `SUPABASE_SERVICE_ROLE_KEY`, Uber Direct, `MARKETPLACE_URL`).
+- **Removed** the stale "WorkOS chosen over Clerk for org management" decision note that no longer applies.
+
+Turn 57 [USER]:
+so curerntl clerk auth impeoemtnation is good??
+
+Turn 58 [ASSISTANT]:
+Let me actually read what the agent wrote rather than just trust the summary.
+
+Turn 59 [ASSISTANT]:
+Two real bugs to fix before this works in production:
+
+**Bug 1:** `sessionClaims?.email` will always be blank. Clerk's default JWT doesn't include email — you need `currentUser()` to get it, or configure a custom session token in the Clerk dashboard. The vendor layout header and dashboard will silently show no email.
+
+**Bug 2:** `routing="hash"` on `<SignIn />` is deprecated in Clerk v7 and causes a warning. Should be removed.
+
+Fixing both now:
+
+Turn 60 [ASSISTANT]:
+Now fix the vendor dashboard the same way — it also uses `sessionClaims` for `firstName` and `email`:
+
+Turn 61 [ASSISTANT]:
+Now fix the sign-in page — remove the deprecated `routing="hash"`:
+
+Turn 62 [ASSISTANT]:
+The implementation was almost right but had two concrete bugs that would have caused silent failures in prod:
+
+1. **Email/name blank in vendor header** — `sessionClaims` only has what Clerk puts in the JWT by default (just `sub`, `iat`, `exp`). Email and firstName aren't there unless you configure a custom session token. Fixed with `currentUser()` which fetches the full user server-side.
+
+2. **`routing="hash"` deprecation** — deprecated in Clerk v7, causes a console warning and potentially broken redirect behavior. Removed.
+
+Everything else — the middleware, the `auth()` pattern in API routes, `<SignOutButton>`, the claim flow — is correct.
+
+Turn 63 [USER]:
+so all well done now?
+
+Turn 64 [ASSISTANT]:
+Not quite — let me actually audit before saying yes. A few things I want to verify.
+
+Turn 65 [ASSISTANT]:
+Found two real bugs:
+
+1. **Security hole** — `NEXT_PUBLIC_ADMIN_TOKEN` is exposed to the browser. Anyone can open devtools, grab the token, and call any admin endpoint directly.
+
+2. **Wrong memberId** — `settings?.composio_connection_id` (a Composio UUID) is being passed as `memberId` to both composio calls. It'll pass garbage to the connector agent.
+
+`claim-profile` is actually fine — it does real work (flips status in Firestore). The verification happens before it via `/verify`.
+
+Fixing both now by moving the Composio calls server-side:
+
+Turn 66 [ASSISTANT]:
+Now rewrite the integrations page to call this route instead:
+
+Turn 67 [ASSISTANT]:
+Now it's actually solid. Here's an honest status:
+
+**Fixed in this pass:**
+- `sessionClaims` not containing email → switched to `currentUser()`
+- Deprecated `routing="hash"` on `<SignIn />`
+- `NEXT_PUBLIC_ADMIN_TOKEN` exposed in browser → moved Composio calls to a server-side API route
+- Wrong `memberId` (was passing Composio connection ID) → now uses `profile.member_id`
+
+**What still needs to happen before deploying:**
+- Run the 4 Supabase migrations (`orders`, `vendor_settings`, `products_composio_fields`, `orders_delivery_fields`, `vendor_profiles_clerk`)
+- Set new env vars in Netlify: `CONNECTOR_URL`, `CONNECTOR_ADMIN_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `UBER_DIRECT_CUSTOMER_ID`, `UBER_DIRECT_SERVER_TOKEN`, `UBER_DIRECT_WEBHOOK_SECRET`
+- Set `COMPOSIO_API_KEY` + `SUPABASE_SERVICE_ROLE_KEY` + `MARKETPLACE_URL` in connector-agent Netlify
+- Merge `feat/commerce-layer` branch
+
+The code itself is clean now.
+
+Turn 68 [USER]:
+update local claude md and give me instructions ot continue in a new session
+
+Turn 69 [ASSISTANT]:
+Now I have the full picture. Let me update both CLAUDE.md files and then write the handoff instructions.
+
+Turn 70 [ASSISTANT]:
+Now I have everything. Let me update both CLAUDE.md files:
+
+Turn 71 [ASSISTANT]:
+Good — connector agent CLAUDE.md is committed. The marketplace CLAUDE.md was already committed earlier in the session. Here are your instructions to continue in a new session:
+
+---
+
+## Continuing in a new session
+
+### Where things stand
+
+**Branch:** `feat/commerce-layer` in `community-marketplace` — **not yet merged to main**
+
+**What's built and committed:**
+- Phase 1: Durable order persistence (Supabase `orders` + `vendor_settings` tables)
+- Phase 2: Composio catalog sync (Shopify/Square OAuth, daily Trigger.dev cron)
+- Phase 3: Uber Direct delivery (quote → save → dispatch → webhook → SMS buyer)
+- WorkOS fully removed → Clerk everywhere (with `currentUser()` fix for email)
+- Vendor orders dashboard with auto-refresh + Mark Ready / Dispatch Uber
+- Self-serve claim flow: unclaimed profile banner → `/claim/[memberId]` → verify → claim
+
+**What needs to happen before any of this goes live:**
+
+1. **Merge the branch** — `feat/commerce-layer` into `main` in community-marketplace
+2. **Run Supabase migrations** (in order, via Supabase dashboard → SQL editor):
+   - `20260518100000_add_orders_and_vendor_settings.sql`
+   - `20260518110000_products_composio_fields.sql`
+   - `20260518120000_orders_delivery_fields.sql`
+   - `20260518130000_vendor_profiles_clerk.sql`
+3. **Set env vars in marketplace Netlify:**
+   - `CONNECTOR_URL`, `CONNECTOR_ADMIN_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `UBER_DIRECT_CUSTOMER_ID`, `UBER_DIRECT_SERVER_TOKEN`, `UBER_DIRECT_WEBHOOK_SECRET`
+   - `MARKETPLACE_URL`
+   - Remove old WorkOS vars: `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD`, `NEXT_PUBLIC_WORKOS_REDIRECT_URI`
+4. **Set env vars in connector-agent Netlify:**
+   - `COMPOSIO_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MARKETPLACE_URL`
+5. **Deploy connector-agent Trigger.dev** (`npx trigger.dev@latest deploy`) to register the new `sync-composio-catalogs` 3am cron
+6. **Register Uber Direct webhook** in Uber dashboard pointing to `https://thecollective.xyz/api/uber/webhook`
+
+**What's next after deploy:**
+- Vendor dashboard Phase 4 polish: real product CRUD (replace demo data), Stripe payout history page
+- Observability: PostHog + Sentry env vars (documented in both CLAUDE.md files)
+- Composio action name verification against live docs before any vendor connects a store
+

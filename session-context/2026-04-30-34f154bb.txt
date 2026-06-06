@@ -1,0 +1,12 @@
+Session: 34f154bb-9037-4cb7-9aa3-2dba3413cd33
+Source: /Users/xen/Documents/ClaudeSessions/-Users-xen-Desktop-dev-community-connector-agent/34f154bb-9037-4cb7-9aa3-2dba3413cd33.jsonl
+============================================================
+
+Turn 1 [USER]:
+wahtst the admin token
+
+Turn 2 [ASSISTANT]:
+The `ADMIN_TOKEN` is a Bearer token environment variable used for authentication on the admin endpoints (`/admin` and `/matches`). It's set as a secret on Netlify and isn't checked into the codebase.
+
+If you need the actual token value, you'd find it in Netlify's environment variables settings for the project. Do you need to look it up or use it for something?
+

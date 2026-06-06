@@ -1,0 +1,26 @@
+Session: ea4cc252-a413-4d2c-8454-c71ff64e528a
+Source: /Users/xen/Documents/ClaudeSessions/-Users-xen-Desktop-dev-community-connector-agent/ea4cc252-a413-4d2c-8454-c71ff64e528a.jsonl
+============================================================
+
+Turn 1 [USER]:
+see linear?
+
+Turn 2 [ASSISTANT]:
+I don't have direct access to Linear in this session. If you'd like me to check Linear for context, you could:
+
+1. Share a Linear project URL or specific issue link
+2. Tell me what to look for (bugs, feedback, roadmap, etc.) and I can help you navigate it
+3. Use the `/browse` skill if you want me to view it in a browser
+
+What were you looking for in Linear?
+
+Turn 3 [USER]:
+dont see lienar mcp set up?
+
+Turn 4 [ASSISTANT]:
+You're right—Linear MCP isn't set up in this session. I can see it's not in the available tools list.
+
+Want me to set it up? I can use the `/mcp-setup` skill to configure Linear MCP, or you can run it yourself if you prefer to manage credentials directly.
+
+What would work better for you?
+

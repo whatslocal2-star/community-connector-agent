@@ -1,0 +1,42 @@
+Session: 04a690da-4a7b-438c-ae07-03dfbc0ab74c
+Source: /Users/xen/Documents/ClaudeSessions/-Users-xen-Desktop-dev-community-connector-agent/04a690da-4a7b-438c-ae07-03dfbc0ab74c.jsonl
+============================================================
+
+Turn 1 [USER]:
+how to run this local
+
+Turn 2 [ASSISTANT]:
+This is a Netlify Functions project. Run it with the Netlify CLI:
+
+```bash
+# Install Netlify CLI if you don't have it
+npm install -g netlify-cli
+
+# From the project root
+cd /Users/xen/community-connector-agent
+
+# Start local dev server (serves index.html + Netlify Functions)
+netlify dev
+```
+
+This runs the site at `http://localhost:8888` with the functions at `http://localhost:8888/.netlify/functions/*`.
+
+**You'll also need a `.env` file** (or `netlify.toml` env block) with:
+
+```
+OPENAI_API_KEY=...
+FIREBASE_PROJECT_ID=whatlocal-ab06e
+FIREBASE_CLIENT_EMAIL=...
+FIREBASE_PRIVATE_KEY=...
+ADMIN_TOKEN=...
+PINECONE_API_KEY=...
+PINECONE_INDEX_NAME=community-members
+```
+
+If you've already linked this project to Netlify (`netlify link`), you can pull the env vars down automatically:
+
+```bash
+netlify env:pull .env
+netlify dev
+```
+

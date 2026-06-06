@@ -1,0 +1,507 @@
+Session: b86d1bc5-0277-4ebe-a3cd-3f3ff90b334d
+Source: /Users/xen/.claude/projects/-Users-xen-Desktop-dev-community-connector-agent/b86d1bc5-0277-4ebe-a3cd-3f3ff90b334d.jsonl
+============================================================
+
+Turn 1 [USER]:
+here lets trace agent from first message. starting with core 3: vendors, artist, and communtiy organizations. very first thing we do is what? very first thing
+
+Turn 2 [ASSISTANT]:
+Let me look at the chat handler entry point.
+
+Turn 3 [ASSISTANT]:
+The very first thing (after input validation) is **`loadAwaitingOutcome(sessionId)`** — checking Firestore to see if this member has a pending matchLog with `status:"followed_up"`.
+
+If they do, the incoming message is treated as outcome feedback on a past intro, not a normal onboarding turn. The whole normal LLM flow is bypassed and the message routes through `extractOutcome` instead.
+
+So the very first meaningful action is: **"did this person just reply to a follow-up about a match we made?"** That check gates everything else.
+
+Turn 4 [ASSISTANT]:
+If the outcome short-circuit doesn't fire, the next step is the **OpenAI call** — `gpt-4o-mini` with the system prompt + full capped history, forced to return `{ reply, profileUpdate }` as JSON.
+
+That's the core onboarding turn: the model reads everything the user has said so far and decides both what to say next and what profile fields to extract.
+
+Turn 5 [ASSISTANT]:
+After parsing the GPT response, the next steps are a sequential save + fire-and-forget pipeline:
+
+1. **Normalize price fields** — if `priceRange` came back as a string (e.g. `"$10–$50"`), parse it to `priceMin`/`priceMax` numbers before saving
+2. **`saveMember`** — write the profile update to Firestore
+3. **`loadMember`** — reload the full profile (to get the merged state)
+4. **`upsertMemberVector`** — re-embed the full profile and upsert to Pinecone
+5. **`shouldRecommend` check** — if the profile is rich enough (name + memberType + ≥2 substantive fields, first time), run `makeFirstRecommendations` and append the intro blurb to the reply
+6. **Save history** — append the final reply to conversation history in Firestore
+
+Then fire-and-forget (non-blocking):
+- Save any new event subscriptions
+- Parse Google Maps URL → lat/lng if a maps link was just captured
+- Cross-reference verification if ≥2 contact channels are now present
+
+Turn 6 [USER]:
+is this where we create theri account on marketpalce platform. also elaborate fire and forget.
+
+Turn 7 [ASSISTANT]:
+**On marketplace account creation:** No — this is not where it happens. The Community Marketplace (`community-marketplace`) is a **read-only public app** — it has no user accounts. It just reads directly from the same Firestore `members` collection. The moment a profile is saved here, it's already visible on the marketplace. No account creation step exists.
+
+What does happen here is **ProLocalIQ sync** (line 164) — that's a separate third-party platform that gets an account created. `isReadyToSync` checks if the profile is complete enough, then `syncToProlocaliq` POSTs to create a business + businessAccount there.
+
+---
+
+**On fire-and-forget:** These are async operations that are intentionally not `await`ed:
+
+```js
+saveSubscriptions(sessionId, subs).catch(...)          // not awaited
+parseGoogleMapsUrl(...).then(...).catch(...)            // not awaited
+runCrossRefVerify(...).catch(...)                       // not awaited
+enrichProfile(...).then(...).catch(...)                 // not awaited
+```
+
+The function returns `{ reply }` to the user **immediately** without waiting for these to finish. They keep running in the background after the response is sent. The `.catch()` on each one prevents an unhandled rejection from crashing anything — errors just get logged.
+
+The tradeoff: the user gets a fast response, but if the Netlify function instance is killed before these finish (e.g. timeout), they silently drop. That's acceptable here because all four are best-effort enrichment — none of them affect the reply the user just received.
+
+Turn 8 [USER]:
+what are these
+
+Turn 9 [ASSISTANT]:
+The four fire-and-forget operations:
+
+**`saveSubscriptions`** — if the profile now has `eventPostingPlatforms` (e.g. `["instagram", "eventbrite"]`), writes subcollection records under `members/{id}/subscriptions/`. These are what the daily Trigger.dev cron uses to know which channels to scrape for events.
+
+**`parseGoogleMapsUrl`** — if the user just dropped a Google Maps link, sends it to `parseLocation.js` to extract `latitude`/`longitude` and writes them back to the profile. Vendors and organizers are asked for this link so they show up on the marketplace map.
+
+**`runCrossRefVerify`** — once ≥2 contact channels are on the profile (e.g. website + Instagram + phone), fires a Gemini 2.0 Flash grounded search asking "do all these channels describe the same business?" Writes `ownershipVerification` back to the profile if confident. Catches fake/mismatched profiles automatically during onboarding without the user knowing it's happening.
+
+**`enrichProfile`** — only runs once (`enrichedAt` not yet set). Scrapes the member's website via Jina Reader and/or hits Google Places API to pull in any profile fields that are still empty — hours, description, photos, categories, etc. Never overwrites what the user already told us directly.
+
+Turn 10 [USER]:
+this step done? ready for next?
+
+Turn 11 [ASSISTANT]:
+The trace is just exploration — no tasks to track here.
+
+Yes, that step is fully covered. The full turn lifecycle is:
+
+1. `loadAwaitingOutcome` — outcome short-circuit check
+2. OpenAI call — GPT generates reply + extracts profile fields
+3. Normalize prices → save to Firestore → reload → embed to Pinecone
+4. `shouldRecommend` → first recs if ready
+5. Save history
+6. Fire-and-forget: subscriptions, location parse, cross-ref verify, enrichment
+7. ProLocalIQ sync (awaited inline)
+8. Return reply
+
+Ready for next — what do you want to trace into?
+
+Turn 12 [ASSISTANT]:
+What's the next thing you want to trace? Some options:
+
+- **`shouldRecommend` + `makeFirstRecommendations`** — how the first 3 intros get built and appended to the reply
+- **`extractOutcome`** — how a NL reply gets turned into structured signal
+- **`enrichProfile`** — the background scrape pipeline
+- **`runCrossRefVerify`** — the Gemini cross-reference check
+- **`syncToProlocaliq`** — the ProLocalIQ account creation
+- **SMS path** — how `sms.js` differs from `chat.js`
+
+Which thread?
+
+Turn 13 [ASSISTANT]:
+SMS is nearly identical to web but with four key differences:
+
+**1. Signature verification first (line 71)** — before anything else, Telnyx's ed25519 signature is checked. Unsigned requests are rejected 401. Web has no equivalent — it trusts the session UUID.
+
+**2. Idempotency gate (line 105)** — Telnyx retries webhooks on flaky networks and can deliver duplicates. The handler does a Firestore atomic `create` on `webhookEvents/telnyx_{id}` — if another instance already processed this message, `create` throws (doc exists), and the handler bails with `200 OK (duplicate)`. Web doesn't need this because the browser doesn't retry.
+
+**3. Session key is phone number, not UUID** — `fromNumber` is the Firestore doc ID and the key passed everywhere. Web uses a UUID generated in localStorage.
+
+**4. GPT token cap is 300, not 512, and the system prompt enforces "1-3 sentences max"** — SMS is a different register. Web gets slightly more room.
+
+Everything else — outcome short-circuit, normalize prices, save, embed, `shouldRecommend`, cross-ref, ProLocalIQ sync — runs in the same order. The one thing missing from SMS vs web is `enrichProfile` and `saveSubscriptions` — those fire-and-forget calls from `chat.js` aren't here.
+
+Turn 14 [USER]:
+it has dubplicate code?
+
+Turn 15 [ASSISTANT]:
+Yes, heavily. The core pipeline is copy-pasted across both files:
+
+- Outcome short-circuit (`loadAwaitingOutcome` → `extractOutcome` → `recordOutcome` → re-embed)
+- Price normalization (`parsePriceRange` + `normalizePricePerProduct`)
+- Save → reload → embed → `shouldRecommend` → `makeFirstRecommendations`
+- Cross-ref verify
+- ProLocalIQ sync
+- History save
+
+The only unique parts are the transport layer (Telnyx signature check, idempotency gate, `sendSms`) and the two missing fire-and-forgets (`enrichProfile`, `saveSubscriptions`).
+
+The clean fix would be extracting a `processTurn(memberId, incomingText, history, options)` function that both handlers call — `chat.js` passes `{ channel: "web", maxTokens: 512 }`, `sms.js` passes `{ channel: "sms", maxTokens: 300 }`. Each handler then only owns its transport logic.
+
+Want me to do that refactor?
+
+Turn 16 [USER]:
+so sms.js and chat.js is the whole app?
+
+Turn 17 [ASSISTANT]:
+No, those are just the two entry points (web and SMS). The app has a lot more:
+
+**Other Netlify functions (API endpoints):**
+- `admin.js` — member list for the dashboard
+- `search.js` — unified search (public search bar + chat agent recommendations)
+- `matches.js` — Pinecone similarity query
+- `enrich.js` — manual enrichment trigger
+- `event-suggestions.js` — list/approve/reject harvested events
+- `marketplace-members/member/events.js` — public read APIs for the marketplace app
+- `match-log.js`, `patch-member.js`, `claim-profile.js`, `verify.js`, `backfill-*.js` — admin ops
+
+**Trigger.dev cron jobs (background workers):**
+- `harvest-events.ts` — daily 8am, scrapes subscribed channels for events
+- `followup-intros.ts` — hourly, sends 48h follow-ups on pending matchLogs
+- `harvest-oakland.ts` — weekly, pulls Oakland businesses from Google Places
+
+**Shared lib (the actual logic):**
+- `search.js` + `searchIntent.js` — hybrid semantic + hard-filter search
+- `recommend.js` — first recommendations pipeline
+- `extractOutcome.js` — NL feedback → structured signal
+- `enrich.js` — Jina + Google Places scraping
+- `verify.js` + `verifyCrossRef.js` — ownership verification
+- `db.js`, `vectorSearch.js`, `matchLog.js`, `systemPrompt.js`, etc.
+
+`chat.js` and `sms.js` are the most complex single files, but they're orchestrators — most of the real logic lives in `lib/`.
+
+Turn 18 [USER]:
+comprehensve big picture in ascii
+
+Turn 19 [ASSISTANT]:
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         ENTRY POINTS                                │
+│                                                                     │
+│   Browser (index.html)          SMS (Telnyx webhook)                │
+│   UUID session_id               phone number as ID                  │
+│         │                                │                          │
+│         ▼                                ▼                          │
+│   /functions/chat.js        /functions/sms.js                       │
+│         │                        │                                  │
+│         └──────────┬─────────────┘                                  │
+│                    │                                                 │
+└────────────────────┼────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      TURN PIPELINE (shared logic)                   │
+│                                                                     │
+│  1. loadAwaitingOutcome ──► outcome? ──► extractOutcome             │
+│                                              │                      │
+│                                         recordOutcome               │
+│                                         re-embed → ack → return     │
+│                                                                     │
+│  2. GPT (gpt-4o-mini) ──► { reply, profileUpdate }                  │
+│                                                                     │
+│  3. normalize prices ──► saveMember ──► loadMember                  │
+│                                              │                      │
+│  4.                                   upsertMemberVector            │
+│                                              │                      │
+│  5.                                   shouldRecommend?              │
+│                                              │ yes (one-shot)       │
+│                                       makeFirstRecommendations      │
+│                                       append blurb to reply         │
+│                                                                     │
+│  6. save history ──► return reply to user                           │
+│                                                                     │
+│  7. FIRE & FORGET (web only)    AWAITED (both)                      │
+│     ├─ saveSubscriptions        ├─ runCrossRefVerify                │
+│     ├─ parseGoogleMapsUrl       └─ syncToProlocaliq                 │
+│     └─ enrichProfile                                                │
+└─────────────────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         DATA LAYER                                  │
+│                                                                     │
+│   Firestore                          Pinecone                       │
+│   ├─ members/{id}                    └─ community-members index     │
+│   │   ├─ profile (flat)                  embeddings + metadata      │
+│   │   ├─ history []                      memberType, city,          │
+│   │   └─ subscriptions/{platform}        priceMin/Max, amenities,   │
+│   ├─ matchLogs/{id}                      booleans, unclaimed...     │
+│   ├─ eventSuggestions/{id}                                          │
+│   └─ webhookEvents/{id}  ◄── SMS idempotency                        │
+└─────────────────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      BACKGROUND WORKERS (Trigger.dev)               │
+│                                                                     │
+│  hourly   followup-intros ──► matchLogs pending > 48h               │
+│           │                   ├─ SMS: sendSms follow-up             │
+│           │                   └─ web: append to history             │
+│           └──► member replies ──► outcome short-circuit (above)     │
+│                                                                     │
+│  daily    harvest-events ──► subscriptions ──► Jina scrape          │
+│           └──► GPT event detect ──► eventSuggestions (pending)      │
+│                                                                     │
+│  weekly   harvest-oakland ──► Google Places ──► GPT enrich          │
+│           └──► members gp_<id> status:unclaimed ──► Pinecone        │
+└─────────────────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      ADMIN SURFACE                                  │
+│                                                                     │
+│  admin.html ──► /admin, /matches, /enrich, /patch-member            │
+│                 /match-log, /claim-profile, /verify                 │
+│                 /event-suggestions (approve/reject)                 │
+│                 /backfill-locations, /backfill-structured           │
+└─────────────────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   PUBLIC READ LAYER (marketplace)                   │
+│                                                                     │
+│  community-marketplace (Next.js) ◄── /marketplace-members          │
+│  browse, map, search, profiles   ◄── /marketplace-member/:id        │
+│                                  ◄── /marketplace-events            │
+│                                  ◄── /search?q=...                  │
+└─────────────────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   EXTERNAL SERVICES                                 │
+│                                                                     │
+│  OpenAI       gpt-4o-mini (chat), embeddings (ada-002)             │
+│  Gemini       2.0 Flash — cross-ref verify, ownership fallback      │
+│  Google       Places API — Oakland harvest, phone verification      │
+│  Telnyx       SMS send/receive                                      │
+│  Jina Reader  free website scraping (enrichment + event harvest)    │
+│  Firecrawl    website email scrape (ownership verification)         │
+│  ProLocalIQ   third-party business platform sync                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+Turn 20 [USER]:
+what does the folder file strucutre breakdown look like
+
+Turn 21 [ASSISTANT]:
+```
+community-connector-agent/
+│
+├── index.html                    # Web chat UI
+├── admin.html                    # Admin dashboard
+├── netlify.toml                  # Netlify config
+├── trigger.config.ts             # Trigger.dev project config
+├── package.json
+│
+├── netlify/functions/            # Serverless API (deployed to Netlify)
+│   │
+│   ├── chat.js                   # Web chat entry point
+│   ├── sms.js                    # SMS (Telnyx webhook) entry point
+│   │
+│   ├── ── Public (no auth) ──
+│   ├── search.js                 # Unified search
+│   ├── marketplace-members.js    # Browse all members
+│   ├── marketplace-member.js     # Single member profile
+│   ├── marketplace-events.js     # Approved events feed
+│   ├── marketplace-search.js     # Marketplace-specific search
+│   │
+│   ├── ── Admin (bearer token) ──
+│   ├── admin.js                  # Member list
+│   ├── matches.js                # Pinecone similarity query
+│   ├── enrich.js                 # Manual enrichment trigger
+│   ├── subscriptions.js          # List active subscriptions
+│   ├── event-suggestions.js      # List/approve/reject events
+│   ├── match-log.js              # CRUD matchLogs
+│   ├── patch-member.js           # Set arbitrary profile fields
+│   ├── claim-profile.js          # Flip unclaimed → claimed
+│   ├── verify.js                 # Ownership verification
+│   ├── conversation.js           # Load conversation history
+│   ├── link-identity.js          # Link web session ↔ phone
+│   │
+│   ├── ── Backfill / one-off ──
+│   ├── backfill-locations.js     # Parse Maps URLs → lat/lng
+│   ├── backfill-structured.js    # Parse priceRange → min/max, re-embed
+│   ├── backfill-embeddings.js    # Re-embed all members
+│   │
+│   └── lib/                      # Shared logic (no HTTP handlers)
+│       ├── systemPrompt.js       # GPT onboarding prompt
+│       ├── taxonomy.js           # Category/subcategory taxonomy
+│       ├── db.js                 # Firestore init + member CRUD
+│       ├── vectorSearch.js       # OpenAI embed + Pinecone upsert/query
+│       ├── search.js             # Hybrid search engine
+│       ├── searchIntent.js       # NL → structured intent parser
+│       ├── recommend.js          # First recommendations pipeline
+│       ├── extractOutcome.js     # NL feedback → structured signal
+│       ├── matchLog.js           # matchLogs Firestore CRUD
+│       ├── enrich.js             # Jina + Places scraping
+│       ├── verify.js             # Ownership verification engine
+│       ├── verifyCrossRef.js     # Onboarding-time cross-ref check
+│       ├── subscriptions.js      # Build subscription records
+│       ├── events.js             # eventSuggestions CRUD
+│       ├── syncToProlocaliq.js   # ProLocalIQ account sync
+│       ├── parseLocation.js      # Google Maps URL → lat/lng
+│       ├── priceParse.js         # "$10–$50" → {priceMin, priceMax}
+│       ├── profileTool.js        # JSON parse with fallback
+│       └── adminAuth.js          # Bearer token check
+│
+├── trigger/                      # Background cron jobs (Trigger.dev)
+│   ├── harvest-events.ts         # Daily 8am — scrape channels for events
+│   ├── followup-intros.ts        # Hourly — 48h match follow-ups
+│   └── harvest-oakland.ts        # Weekly — Google Places harvest
+│
+├── tests/
+│   ├── search.test.js            # 38 unit tests (npm test)
+│   ├── e2e-search.js             # Real-stack search proof
+│   ├── e2e-onboarding.js         # Real chat handler e2e
+│   └── e2e-backfill.js           # Backfill against real Firestore+Pinecone
+│
+└── scripts/                      # One-off ops scripts (run locally)
+    ├── import-prolocaliq.mjs     # Bulk import from ProLocalIQ
+    ├── geocode-fetch.mjs         # Fetch coords for members
+    ├── geocode-apply.mjs         # Apply geocode results back
+    ├── backfill-images-from-spaces.mjs
+    └── test-search.mjs
+```
+
+Turn 22 [USER]:
+draw ascii as flows? core flow is the chat loop?
+
+Turn 23 [ASSISTANT]:
+```
+                        ┌─────────────┐
+                        │  index.html │  (browser, generates UUID)
+                        └──────┬──────┘
+                               │ POST /chat
+                               ▼
+                        ┌─────────────┐
+                        │   chat.js   │◄──── admin.html
+                        └──────┬──────┘       │
+                               │              │ /admin, /matches, /enrich
+                               │              │ /patch-member, /claim-profile
+                               │              │ /verify, /event-suggestions
+                               │              │ /match-log, /subscriptions
+                               │              ▼
+                               │        ┌──────────────────┐
+                               │        │   adminAuth.js   │ (bearer token)
+                               │        └──────────────────┘
+                               │
+              ┌────────────────┼────────────────────────────┐
+              │                │                            │
+              ▼                ▼                            ▼
+    ┌──────────────┐  ┌─────────────────┐      ┌───────────────────┐
+    │ matchLog.js  │  │ systemPrompt.js │      │    vectorSearch.js│
+    │              │  │ taxonomy.js     │      │  (OpenAI embed +  │
+    │loadAwaiting  │  └────────┬────────┘      │   Pinecone upsert)│
+    │Outcome       │           │               └───────────────────┘
+    └──────┬───────┘           │ GPT context              ▲
+           │                   ▼                          │
+           │          ┌────────────────┐                  │
+           │          │  gpt-4o-mini   │                  │
+           │          │ {reply,        │                  │
+           │          │  profileUpdate}│                  │
+           │          └───────┬────────┘                  │
+           │                  │                           │
+           ▼                  ▼                           │
+    ┌─────────────┐   ┌──────────────┐                   │
+    │extractOutcome│  │ priceParse.js│                   │
+    │(GPT signal) │  │ normalize    │                   │
+    └──────┬──────┘  └──────┬───────┘                   │
+           │                │                            │
+           │                ▼                            │
+           │         ┌────────────┐                      │
+           │         │   db.js    │──────────────────────┘
+           │         │ saveMember │  (save → reload → embed)
+           │         │ loadMember │
+           │         └──────┬─────┘
+           │                │
+           │                ▼
+           │         ┌──────────────┐
+           │         │ recommend.js │
+           │         │shouldRecommend│
+           │         │makeFirstRecs  │──► matchLog.js (write 3 logs)
+           │         └──────┬───────┘
+           │                │
+           └────────────────┤
+                            │ reply → user
+                            │
+              ┌─────────────┼──────────────────┐
+              │  fire & forget                 │ awaited
+              │                                │
+    ┌─────────┴──────────┐         ┌───────────┴──────────┐
+    │ subscriptions.js   │         │  verifyCrossRef.js   │
+    │ parseLocation.js   │         │  (Gemini grounded)   │
+    │ enrich.js          │         │                      │
+    │ (Jina + Places)    │         │  syncToProlocaliq.js │
+    └────────────────────┘         └──────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SMS PATH  (parallel to chat, same core logic)
+
+    ┌─────────────┐
+    │  Telnyx     │
+    │  (inbound)  │
+    └──────┬──────┘
+           │ POST /sms
+           ▼
+    ┌─────────────┐
+    │   sms.js    │
+    └──────┬──────┘
+           │
+    ┌──────▼──────────────┐
+    │ verifyTelnyx        │  ed25519 signature check
+    │ Signature()         │
+    └──────┬──────────────┘
+           │
+    ┌──────▼──────────────┐
+    │ webhookEvents.create│  atomic idempotency gate
+    │ (Firestore)         │  duplicate → bail
+    └──────┬──────────────┘
+           │
+           └──► same pipeline as chat.js
+                (phone number as session ID)
+                missing: enrichProfile, saveSubscriptions
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BACKGROUND WORKERS  (Trigger.dev, independent of request cycle)
+
+    ┌────────────────────────────────────────────────┐
+    │  hourly    followup-intros.ts                  │
+    │            matchLogs pending > 48h             │
+    │            │                                   │
+    │            ├─ SMS → sendSms (Telnyx)           │
+    │            └─ web → append to history (db.js)  │
+    │                 └─► next chat load shows msg   │
+    └────────────────────────────────────────────────┘
+
+    ┌────────────────────────────────────────────────┐
+    │  daily 8am  harvest-events.ts                  │
+    │             subscriptions → Jina scrape        │
+    │             → gpt-4o-mini event detect         │
+    │             → eventSuggestions (pending)       │
+    │             → admin approves in admin.html     │
+    └────────────────────────────────────────────────┘
+
+    ┌────────────────────────────────────────────────┐
+    │  weekly Sun  harvest-oakland.ts                │
+    │              Google Places → GPT enrich        │
+    │              → members gp_<id>                 │
+    │                status: unclaimed               │
+    │              → vectorSearch.js (Pinecone)      │
+    │              → claim-profile.js (admin)        │
+    └────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PUBLIC READ  (marketplace app reads these)
+
+    community-marketplace (Next.js)
+           │
+           ├─► /marketplace-members   (browse, filter)
+           ├─► /marketplace-member    (profile page)
+           ├─► /marketplace-events    (events feed)
+           └─► /search                (search bar)
+                    └─► search.js
+                         ├─ searchIntent.js  (NL → filters)
+                         └─ vectorSearch.js  (Pinecone query)
+```
+

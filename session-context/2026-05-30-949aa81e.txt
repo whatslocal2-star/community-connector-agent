@@ -1,0 +1,25 @@
+Session: 949aa81e-9527-451f-a43f-4455420a5b7c
+Source: /Users/xen/.claude/projects/-Users-xen-Desktop-dev-community-connector-agent/949aa81e-9527-451f-a43f-4455420a5b7c.jsonl
+============================================================
+
+Turn 1 [USER]:
+are we corectly verifiyin g business ownsership with trigger on signup fdlow?
+
+Turn 2 [ASSISTANT]:
+Let me look at the signup flow and cross-reference verification code.
+
+Turn 3 [ASSISTANT]:
+Here's the situation:
+
+**Cross-ref verification is NOT going through Trigger.dev — it's fire-and-forget inside the Netlify function itself.**
+
+Both `chat.js:146` and `sms.js:187` call `runCrossRefVerify(...)` as a floating promise (`.catch(...)` but no `await`). This means:
+
+1. **It will likely be killed.** Netlify functions terminate after the response is returned. The fire-and-forget pattern works for very fast operations, but `runCrossRefVerify` calls Gemini (network I/O) — Netlify will likely cut the process before Gemini responds.
+
+2. **There's also a logic bug in `shouldCrossRef`** (line 23–26): the name check is confusing. It only skips if `!(profile.name && memberType === "vendor")`, but all member types can have verifiable channels.
+
+**What should happen:** `runCrossRefVerify` should be a Trigger.dev task (like enrichment or the followup cron) so it runs outside the Netlify function lifecycle and is guaranteed to complete.
+
+Want me to move it to a Trigger.dev task? It would be a simple `trigger/cross-ref-verify.ts` task triggered via `tasks.trigger("cross-ref-verify", { memberId, profile })` instead of the direct call.
+

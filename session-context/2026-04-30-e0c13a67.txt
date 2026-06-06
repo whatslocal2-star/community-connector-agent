@@ -1,0 +1,24 @@
+Session: e0c13a67-a071-4e73-a975-ab0a5b52a1d3
+Source: /Users/xen/Documents/ClaudeSessions/-Users-xen-Desktop-dev-community-connector-agent/e0c13a67-a071-4e73-a975-ab0a5b52a1d3.jsonl
+============================================================
+
+Turn 1 [USER]:
+we need to connect this to mae_agent
+
+Turn 2 [ASSISTANT]:
+Let me check the projects index to understand what mae_agent is.
+
+Turn 3 [ASSISTANT]:
+Let me explore mae_agent's structure to understand its API and architecture before planning the connection.
+
+Turn 4 [ASSISTANT]:
+I have a full picture of both systems now. Before implementing, I need to clarify the direction of the connection:
+
+**Option A — mae_agent as the channel layer:** mae_agent receives inbound SMS/web messages and forwards them to community-connector-agent for member profiling. mae_agent handles multi-channel delivery, campaigns, and automation while CCA owns the Firestore + Pinecone profile logic.
+
+**Option B — CCA triggers mae_agent:** After community-connector-agent profiles a member, it calls mae_agent's API to create a conversation/contact and trigger downstream automation (follow-up campaigns, Slack notifications, etc.).
+
+**Option C — Bidirectional:** CCA handles onboarding/profiling (Firestore + Pinecone), and when a member completes onboarding it kicks off a mae_agent campaign or automation workflow. mae_agent can also call CCA's `/functions/matches` for vector-based member discovery.
+
+Which direction are you thinking? Or is there a specific flow — like "when a member finishes onboarding in CCA, create them as a contact in mae_agent and enroll them in a campaign" — you have in mind?
+
