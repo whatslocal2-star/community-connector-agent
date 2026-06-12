@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-06-12 (Convener redesign → prod)
+- **Convener cockpit:** rebuilt the admin Convener from a search+log tool into a tabbed review-and-approve cockpit with 3 collab types — pairwise intro, group collab, event-first. New `lib/convener.js` matching engine (complementary fit + semantic fallback), `lib/collabs.js` `collabs` model, `convener.js` / `convener-collabs.js` endpoints.
+- **In-app delivery loop:** approving a collab attaches it to each member's `pendingCollabs`; the same connector persona relays numbered options and records `collabResponses` (no second bot). `lib/collabRooms.js` + `room.js` + marketplace `app/vendor/collabs` give interested parties a multi-party chat room with a proceed/skip majority vote.
+- **Liveness + format learning:** `lib/collabActivity.js` prunes persistent decliners who go quiet (`prune-collab-pool` weekly cron); `lib/matchFormats.js` distills a winning collab shape on a proceed-majority and biases members toward formats they liked.
+- **Shipped to prod:** Netlify + Trigger.dev (v20260612.1) deployed; backfilled all 415 members so `offers`/`needs` namespaces are populated (complementary matching live). Set `MARKETPLACE_API_KEY`. 111 unit tests green.
+- **Fixes found in testing:** `buildNeedsText`/`buildOffersText` crashed on dirty (string-not-array) profile fields; parallelized the pairwise scan (was ~30s → ~5.5s) to fit the function timeout.
+
 ## 2026-06-05 (pre-launch trust + abuse hardening)
 - **Rate limiting (was NONE):** new `lib/rateLimit.js` — Firestore fixed-window limiter, shared across serverless instances, fails OPEN on limiter error. Guards the public unauthenticated endpoints: `/chat` 30/min/IP, `/search` 60/min/IP, plus a per-member throttle on `/verify` (12/hr/member) so the claim form can't brute-force a phone/handle or run up Places/Gemini spend. Counter docs carry `expiresAt` for a Firestore TTL sweep (needs one-time console config).
 - **Self-serve claim flow hardened:** `claim-profile.js` is no longer a stub — it now gates on `profile.ownershipVerification.verified` (refuses unverified claims; `force:true` = admin backfill override), returns 409 on re-claim, and records `claimMethod`. Backs the merged marketplace Clerk claim UI (`/api/claim` BFF → verify → claim-profile).
