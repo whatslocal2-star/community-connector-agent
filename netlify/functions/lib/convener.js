@@ -140,7 +140,7 @@ export async function findPairings({ limit = 12, excludePairKeys = [], pool = nu
   const idx = poolIndex(pool);
   const seen = new Set(excludePairKeys);
   const pairs = [];
-  const target = limit * 3; // collect a few extra, then rank — bounds Pinecone calls
+  const target = limit * 2; // collect a few extra, then rank
 
   const addPair = (a, b, score, fit, basis) => {
     const key = pairKey(a.id, b.id);
@@ -161,36 +161,35 @@ export async function findPairings({ limit = 12, excludePairKeys = [], pool = nu
     return true;
   };
 
-  for (const m of pool) {
-    if (pairs.length >= target) break;
-    let matched = false;
-
-    // Preferred: complementary fit (their offers ↔ this member's needs).
+  // Find one counterpart for a member — complementary first, then semantic
+  // similarity. Pure read (no shared state) so a batch can run concurrently.
+  const findCounterpart = async (m) => {
     const needsText = buildNeedsText(m.profile);
     const offersText = buildOffersText(m.profile);
     if (needsText.trim() || offersText.trim()) {
       const ranked = await queryComplementary({ needsText, offersText, excludeIds: [m.id], limit: 5 });
       for (const r of ranked) {
         const other = idx.get(r.id);
-        if (!other) continue;
-        if (addPair(m, other, r.score, (r.directions || []).map(d => DIRECTION_LABEL[d] || d), "complementary")) {
-          matched = true;
-          break;
-        }
+        if (other) return { m, other, score: r.score, fit: (r.directions || []).map(d => DIRECTION_LABEL[d] || d), basis: "complementary" };
       }
     }
+    try {
+      const similar = await findSimilarMembers(m.id, 5);
+      for (const s of similar) {
+        const other = idx.get(s.id);
+        if (other) return { m, other, score: s.score, fit: ["similar profile"], basis: "semantic" };
+      }
+    } catch { /* member not in the index yet — skip */ }
+    return null;
+  };
 
-    // Fallback: closest member by overall profile similarity. Keeps the
-    // pairwise tab useful before the network has rich needs/offers data.
-    if (!matched) {
-      try {
-        const similar = await findSimilarMembers(m.id, 5);
-        for (const s of similar) {
-          const other = idx.get(s.id);
-          if (!other) continue;
-          if (addPair(m, other, s.score, ["similar profile"], "semantic")) break;
-        }
-      } catch { /* member not in the index yet — skip */ }
+  // Scan in concurrent batches so the per-member embed+query calls overlap.
+  // Each is independent; we dedupe + rank after. Stop once we have enough.
+  const BATCH = 10;
+  for (let i = 0; i < pool.length && pairs.length < target; i += BATCH) {
+    const found = await Promise.all(pool.slice(i, i + BATCH).map(findCounterpart));
+    for (const f of found) {
+      if (f) addPair(f.m, f.other, f.score, f.fit, f.basis);
     }
   }
 
@@ -231,12 +230,9 @@ export async function composePairing(pair, { pool = null } = {}) {
 export async function proposePairings({ limit = 12, compose = 6, excludePairKeys = [] } = {}) {
   const pool = await loadMatchPool();
   const pairs = await findPairings({ limit, excludePairKeys, pool });
-  const drafts = [];
-  for (const pair of pairs.slice(0, compose)) {
-    const draft = await composePairing(pair, { pool });
-    if (draft) drafts.push(draft);
-  }
-  return drafts;
+  // Compose the top pairs concurrently — each is one independent LLM call.
+  const drafts = await Promise.all(pairs.slice(0, compose).map(pair => composePairing(pair, { pool })));
+  return drafts.filter(Boolean);
 }
 
 // ── Type 2: group collabs ──────────────────────────────────────────────────

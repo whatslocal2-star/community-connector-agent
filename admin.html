@@ -1015,7 +1015,7 @@
     const orig = btn.textContent; btn.disabled = true; btn.textContent = "Scanning…";
     cvBusy("pairwise", "Scanning the network for two-party fits…");
     try {
-      const data = await cvCompute({ mode: "pairings", limit: 12, compose: 6 });
+      const data = await cvCompute({ mode: "pairings", limit: 8, compose: 3 });
       if (data.drafts?.length) cvAddDrafts(data.drafts, "pairwise");
       else cvNote("No new pairings surfaced — the network may still be filling in.", "pairwise");
     } catch (e) { cvNote("Pairing scan failed.", "pairwise"); }

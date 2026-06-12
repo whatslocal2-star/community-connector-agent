@@ -40,7 +40,7 @@ export const handler = async (event) => {
         .filter(c => c.status !== "dismissed")
         .flatMap(collabPairKeys);
       const limit = Math.min(Math.max(Number(body.limit) || 12, 1), 25);
-      const compose = Math.min(Math.max(Number(body.compose) || 6, 1), 12);
+      const compose = Math.min(Math.max(Number(body.compose) || 4, 1), 10);
       const drafts = await proposePairings({ limit, compose, excludePairKeys: exclude });
       return json(200, { mode, count: drafts.length, drafts });
     }
