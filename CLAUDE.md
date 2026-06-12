@@ -50,8 +50,6 @@ AI-driven community onboarding agent. Profiles local members (vendors, shoppers,
 | `netlify/functions/lib/matchLog.js` | matchLogs CRUD + `loadSuccessfulMatches` for Level 1 in-context learning |
 | `netlify/functions/lib/extractOutcome.js` | GPT NL → structured outcome signal |
 | `netlify/functions/lib/observability.js` | Sentry + PostHog (`initObservability` / `trackEvent` / `captureError` / `flushObservability`) |
-| `netlify/functions/lib/composio.js` | Composio `@composio/core` client + `runTool(slug, memberId, args)` |
-| `netlify/functions/lib/supabase.js` | Service-role Supabase client → writes `products`/`vendor_settings` for marketplace |
 | `netlify/functions/verify.js` | Admin: run ownership verification |
 | `netlify/functions/convener.js` | Admin: POST `{mode, env: real\|sim}` (pairings\|group\|invent-event\|next-best\|formats\|from-format) — generate proposals (no writes) |
 | `netlify/functions/convener-collabs.js` | Admin: GET queue; POST `{action: save\|approve\|dismiss\|recur\|open-room}` |
@@ -70,9 +68,6 @@ AI-driven community onboarding agent. Profiles local members (vendors, shoppers,
 | `netlify/functions/claim-profile.js` | Admin: flip unclaimed → claimed (gated on `ownershipVerification.verified`) |
 | `netlify/functions/patch-member.js` | Admin: POST `{id, fields}` — set arbitrary profile fields |
 | `netlify/functions/sms-send.js` | Admin: outbound transactional SMS via Telnyx |
-| `netlify/functions/composio-connect.js` | Admin: initiate Composio OAuth for Shopify/Square |
-| `netlify/functions/composio-sync.js` | Admin: sync vendor catalog → Supabase `products` |
-| `netlify/functions/composio-push-order.js` | Admin: push marketplace order back to vendor's store |
 | `netlify/functions/backfill-structured.js` | Admin: parse priceRange, re-embed — paginated (`?offset=&limit=`) |
 | `trigger/post-save-pipeline.ts` | Per-turn background task: subscriptions, location parse, cross-ref verify, enrichment |
 | `trigger/harvest-events.ts` / `harvest-oakland.ts` / `followup-intros.ts` / `prune-collab-pool.ts` | Daily/weekly/hourly/weekly crons |
@@ -172,7 +167,7 @@ signature, type, typeLineup: [memberType], exampleTitle, wins, sourceCollabIds: 
 
 **Enrichment + verification:** `GOOGLE_PLACES_API_KEY`, `FIRECRAWL_API_KEY`, `GEMINI_API_KEY`
 
-**Commerce:** `COMPOSIO_API_KEY` (new `@composio/core` platform — legacy `composio-core` key 401s), `COMPOSIO_SHOPIFY_AUTH_CONFIG_ID`, `COMPOSIO_SQUARE_AUTH_CONFIG_ID`, `MARKETPLACE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+**Commerce:** moved out — Composio (catalog sync / order push) + Supabase now live entirely in the **marketplace** repo (its own Trigger.dev project). The connector-agent no longer touches commerce or Supabase. (`MARKETPLACE_URL` only mattered for the old Composio OAuth callback, now in the marketplace too.)
 
 **Trigger.dev dashboard** (project `xeno` / `proj_xlqnddtyofcgtvjudspi`): mirrors Netlify minus `TRIGGER_SECRET_KEY` and `FIRECRAWL_API_KEY`. Missing: `SENTRY_DSN`, `POSTHOG_API_KEY`, `POSTHOG_HOST` (crons don't emit yet).
 
@@ -184,12 +179,7 @@ signature, type, typeLineup: [memberType], exampleTitle, wins, sourceCollabIds: 
 
 ## Active TODOs
 
-**Commerce go-live (blocked):**
-- 🔴 Get fresh `COMPOSIO_API_KEY` from current dashboard (old key is legacy platform, 401s)
-- ⬜ Create Shopify + Square auth configs in Composio → set `COMPOSIO_SHOPIFY/SQUARE_AUTH_CONFIG_ID`
-- ⬜ Set `MARKETPLACE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` in Netlify
-- ⬜ Run `npm run test:e2e:commerce` end-to-end, then push (5 commits ahead of origin)
-- ⬜ Catalog freshness: extract `syncVendorCatalog()`, add daily cron, deactivate removed products
+**Commerce:** ✅ moved to the **marketplace** repo (Composio + Supabase + own Trigger.dev project for catalog sync/order push). Connector-agent is out of commerce entirely. Go-live still blocked on a live `COMPOSIO_API_KEY` — but that's now a marketplace concern.
 
 **Infrastructure:**
 - 🔴 Set `TELNYX_PUBLIC_KEY` in Netlify prod → fix SMS
