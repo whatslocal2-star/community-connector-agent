@@ -37,6 +37,7 @@ function sanitizeParties(parties = []) {
     partyStatus: p.partyStatus || "proposed",
     invitedAt: p.invitedAt ?? null,
     response: p.response ?? null, // { decision, note, respondedAt } once they reply
+    detail: p.detail ?? null,     // profile snapshot for the hover popover
   }));
 }
 

@@ -396,6 +396,15 @@
     }
     .cv-tab:hover { color: #111827; }
     .cv-tab.active { color: #111827; font-weight: 600; border-bottom-color: #059669; }
+    /* Hover a party to see who they are + why (offers/needs) */
+    .cv-party { position: relative; cursor: help; border-bottom: 1px dotted #94a3b8; }
+    .cv-party .cv-pop {
+      display: none; position: absolute; z-index: 60; left: 0; top: 100%; margin-top: 5px;
+      width: 290px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.16); padding: 11px 12px; font-size: 12px;
+      color: #374151; white-space: normal; line-height: 1.5; text-align: left; font-weight: 400;
+    }
+    .cv-party:hover .cv-pop { display: block; }
   </style>
 </head>
 <body>
@@ -1051,6 +1060,25 @@
 
   function cvBadge(t) { t = t || "unknown"; return `<span class="badge badge-${t}">${t}</span>`; }
 
+  // Hover popover: who a party is + the offers/needs that drive the fit.
+  function cvPartyPop(p) {
+    const d = p.detail || {};
+    const loc = [d.neighborhood, d.city].filter(Boolean).join(", ");
+    const rows = [`<div style="font-weight:600;">${cvBadge(p.memberType)} ${escapeHtml(p.memberName || p.memberId)}</div>`];
+    if (loc) rows.push(`<div style="color:#6b7280;margin-top:2px;">📍 ${escapeHtml(loc)}</div>`);
+    if (d.vibe) rows.push(`<div style="color:#6b7280;font-style:italic;">${escapeHtml(d.vibe)}</div>`);
+    if (d.description) rows.push(`<div style="margin-top:5px;">${escapeHtml(d.description)}</div>`);
+    if ((d.offers || []).length) rows.push(`<div style="margin-top:6px;"><span style="color:#166534;font-weight:600;">Offers:</span> ${escapeHtml(d.offers.join(", "))}</div>`);
+    if ((d.needs || []).length) rows.push(`<div style="margin-top:3px;"><span style="color:#92400e;font-weight:600;">Needs:</span> ${escapeHtml(d.needs.join(", "))}</div>`);
+    if (!(d.offers || []).length && !(d.needs || []).length && !d.description) rows.push(`<div style="color:#9ca3af;margin-top:4px;">No offers/needs captured yet — match is by profile similarity.</div>`);
+    return `<span class="cv-pop">${rows.join("")}</span>`;
+  }
+
+  // A party name wrapped so hovering reveals the detail popover.
+  function cvPartyName(p) {
+    return `<span class="cv-party">${cvBadge(p.memberType)} <strong>${escapeHtml(p.memberName || p.memberId)}</strong>${cvPartyPop(p)}</span>`;
+  }
+
   // "Why this match" — a real offers↔needs fit vs. just profile similarity.
   function cvFitChip(d) {
     if (!d || !d.basis) return "";
@@ -1154,7 +1182,7 @@
   function draftPartyRows(parties) {
     return (parties || []).map(p => `
       <div style="padding:6px 0;border-top:1px solid #f3f4f6;">
-        <div style="font-size:13px;">${cvBadge(p.memberType)} <strong>${escapeHtml(p.memberName || p.memberId)}</strong>${p.role ? ` <span style="color:#6b7280;">· ${escapeHtml(p.role)}</span>` : ""}</div>
+        <div style="font-size:13px;">${cvPartyName(p)}${p.role ? ` <span style="color:#6b7280;">· ${escapeHtml(p.role)}</span>` : ""}</div>
         ${p.message ? `<div style="font-size:12px;color:#374151;margin-top:2px;">${escapeHtml(p.message)}</div>` : ""}
       </div>`).join("");
   }
@@ -1189,7 +1217,7 @@
       const cands = (rc.candidates || []).map((c, ci) => {
         const picked = selected.has(c.memberId);
         return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:12px;">
-          <span>${cvBadge(c.memberType)} ${escapeHtml(c.memberName || c.memberId)}${c.neighborhood ? ` <span style="color:#9ca3af;">· ${escapeHtml(c.neighborhood)}</span>` : ""} <span style="color:#9ca3af;">(${Math.round((c.score || 0) * 100)})</span></span>
+          <span>${cvPartyName(c)} <span style="color:#9ca3af;">(${Math.round((c.score || 0) * 100)})</span></span>
           <button class="refresh-btn" style="font-size:11px;padding:2px 8px;" ${picked ? "disabled" : ""} onclick="cvAddRoleParty('${key}', ${ri}, ${ci})">${picked ? "added" : "add"}</button>
         </div>`;
       }).join("");
@@ -1212,7 +1240,7 @@
     const c = (rc.candidates || [])[ci]; if (!c) return;
     d.parties = d.parties || [];
     if (d.parties.some(p => p.memberId === c.memberId)) return;
-    d.parties.push({ memberId: c.memberId, memberName: c.memberName, memberType: c.memberType, role: rc.role, message: null, score: c.score, partyStatus: "in" });
+    d.parties.push({ memberId: c.memberId, memberName: c.memberName, memberType: c.memberType, role: rc.role, message: null, score: c.score, partyStatus: "in", detail: c.detail || null });
     const rn = (d.rolesNeeded || []).find(r => r.role === rc.role); if (rn) rn.filled = true;
     renderDraftsFor(d._mode);
   }
@@ -1274,7 +1302,7 @@
       const resp = !approved ? "" : cvRespChip(p);
       return `<div style="padding:6px 0;border-top:1px solid #f3f4f6;${out ? "opacity:.45;" : ""}">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-          <span style="font-size:13px;">${cvBadge(p.memberType)} <strong>${escapeHtml(p.memberName || p.memberId)}</strong>${p.role ? ` <span style="color:#6b7280;">· ${escapeHtml(p.role)}</span>` : ""} ${resp}</span>
+          <span style="font-size:13px;">${cvPartyName(p)}${p.role ? ` <span style="color:#6b7280;">· ${escapeHtml(p.role)}</span>` : ""} ${resp}</span>
           <span style="display:flex;gap:6px;flex-shrink:0;">${copy}${ctrls}</span>
         </div>
         ${p.message ? `<div style="font-size:12px;color:#374151;margin-top:2px;">${escapeHtml(p.message)}</div>` : ""}
@@ -1338,7 +1366,7 @@
       slot.innerHTML = `<div style="margin:4px 0 2px;padding:6px;border:1px dashed #d1d5db;border-radius:8px;">
         <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Replace with:</div>` +
         cands.map((cand, idx) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;font-size:12px;">
-          <span>${cvBadge(cand.memberType)} ${escapeHtml(cand.memberName || cand.memberId)} <span style="color:#9ca3af;">(${Math.round((cand.score || 0) * 100)})</span></span>
+          <span>${cvPartyName(cand)} <span style="color:#9ca3af;">(${Math.round((cand.score || 0) * 100)})</span></span>
           <button class="refresh-btn" style="font-size:11px;padding:2px 8px;" onclick="cvPickReplacement('${id}', ${pi}, ${idx})">use</button>
         </div>`).join("") +
         `<button class="refresh-btn" style="font-size:11px;padding:2px 8px;margin-top:4px;" onclick="document.getElementById('cv_repl_${id}_${pi}').innerHTML=''">cancel</button></div>`;
@@ -1353,7 +1381,7 @@
     const role = c.parties[pi]?.role ?? null;
     c.parties[pi] = {
       memberId: cand.memberId, memberName: cand.memberName, memberType: cand.memberType,
-      role, message: null, score: cand.score, partyStatus: "in",
+      role, message: null, score: cand.score, partyStatus: "in", detail: cand.detail || null,
     };
     renderQueue();
   }

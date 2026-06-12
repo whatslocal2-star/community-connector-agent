@@ -75,6 +75,21 @@ function poolIndex(pool) {
   return new Map(pool.map(m => [m.id, m]));
 }
 
+// Compact profile snapshot shown when the admin hovers a party in review —
+// the "why" behind a match (offers/needs drive complementary fit). Stored on
+// the party so both draft and saved-collab cards can render it without refetch.
+function partyDetail(member) {
+  const p = member.profile || {};
+  return {
+    neighborhood: p.neighborhood || null,
+    city: p.city || null,
+    vibe: p.vibe || null,
+    offers: Array.isArray(p.offers) ? p.offers : [],
+    needs: Array.isArray(p.needs) ? p.needs : [],
+    description: p.businessDescription || p.approvedBlurb || null,
+  };
+}
+
 // Compact view of a member for the message-writing prompt. Phone never leaks.
 function partyContext(member, { role = null, score = null } = {}) {
   const p = member.profile || {};
@@ -237,6 +252,7 @@ export async function composePairing(pair, { pool = null } = {}) {
       message: byId.get(m.id) || null,
       score: pair.score,
       partyStatus: "proposed",
+      detail: partyDetail(m),
     })),
   };
 }
@@ -334,6 +350,7 @@ export async function buildGroup({ seedMemberId = null, size = 3, lineup = null,
       message: byId.get(m.id) || null,
       score: null,
       partyStatus: "proposed",
+      detail: partyDetail(m),
     })),
   };
 }
@@ -360,6 +377,7 @@ export async function nextBestForRole({ needsText, roleType = null, excludeIds =
       neighborhood: m.profile.neighborhood || null,
       city: m.profile.city || null,
       status: m.status || null,
+      detail: partyDetail(m),
     });
     if (out.length >= limit) break;
   }
