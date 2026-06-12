@@ -49,6 +49,8 @@ export const handler = async (event) => {
           parties: d.parties ?? [],
           rolesNeeded: d.rolesNeeded ?? [],
           seedMemberId: d.seedMemberId ?? null,
+          basis: d.basis ?? null,
+          fit: d.fit ?? [],
           status: body.status || "flagged",
         });
         return json(200, { ok: true, id });

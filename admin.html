@@ -999,6 +999,19 @@
 
   function cvBadge(t) { t = t || "unknown"; return `<span class="badge badge-${t}">${t}</span>`; }
 
+  // "Why this match" — a real offers↔needs fit vs. just profile similarity.
+  function cvFitChip(d) {
+    if (!d || !d.basis) return "";
+    if (d.basis === "complementary") {
+      const f = (d.fit || []).join(" · ");
+      return `<span style="font-size:10px;background:#dcfce7;color:#166534;padding:1px 7px;border-radius:6px;font-weight:600;">⊶ complementary fit</span>${f ? ` <span style="font-size:11px;color:#6b7280;">${escapeHtml(f)}</span>` : ""}`;
+    }
+    if (d.basis === "semantic") {
+      return `<span style="font-size:10px;background:#f3f4f6;color:#6b7280;padding:1px 7px;border-radius:6px;">similar profile</span>`;
+    }
+    return "";
+  }
+
   // ── Tabs: switch modes, lazy-load the queue/formats panes ──
   function cvTab(name) {
     document.querySelectorAll('.cv-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -1108,9 +1121,11 @@
   }
 
   function draftCard(key, d) {
+    const chip = cvFitChip(d);
     const inner = `
       ${d.title ? `<div style="font-weight:600;margin-top:4px;">${escapeHtml(d.title)}</div>` : ""}
-      ${d.adminSummary ? `<div style="font-size:12px;color:#6b7280;margin:6px 0;font-style:italic;">${escapeHtml(d.adminSummary)}</div>` : ""}
+      ${chip ? `<div style="margin:6px 0 2px;">${chip}</div>` : ""}
+      ${d.adminSummary ? `<div style="font-size:12px;color:#6b7280;margin:4px 0;font-style:italic;">${escapeHtml(d.adminSummary)}</div>` : ""}
       ${draftPartyRows(d.parties)}`;
     return draftShell(key, d.type, inner);
   }
@@ -1233,7 +1248,7 @@
         <span style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;">${c.type}${src}</span>
         ${actions}
       </div>
-      <div style="margin-top:4px;">${head}</div>
+      <div style="margin-top:4px;">${head}${cvFitChip(c) ? ` ${cvFitChip(c)}` : ""}</div>
       ${c.description ? `<div style="font-size:12px;color:#6b7280;margin:4px 0;">${escapeHtml(c.description)}</div>` : ""}
       ${c.adminSummary ? `<div style="font-size:12px;color:#6b7280;margin:4px 0;font-style:italic;">${escapeHtml(c.adminSummary)}</div>` : ""}
       ${parties}

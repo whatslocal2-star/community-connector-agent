@@ -49,6 +49,8 @@ export async function createCollab({
   parties = [],
   rolesNeeded = [],
   seedMemberId = null,
+  basis = null,
+  fit = [],
   status = "flagged",
 }) {
   if (!COLLAB_TYPES.includes(type)) throw new Error(`invalid collab type: ${type}`);
@@ -64,6 +66,8 @@ export async function createCollab({
     parties: sanitizeParties(parties),
     rolesNeeded,
     seedMemberId,
+    basis,
+    fit,
     createdAt: FieldValue.serverTimestamp(),
     approvedAt: null,
     matchLogIds: [],

@@ -217,6 +217,8 @@ export async function composePairing(pair, { pool = null } = {}) {
     title: null,
     description: null,
     adminSummary: msgs.adminSummary,
+    basis: pair.basis || null,   // "complementary" | "semantic" — why we paired them
+    fit: pair.fit || [],         // direction labels, or ["similar profile"]
     parties: members.map(m => ({
       memberId: m.id,
       memberName: m.profile.name || null,
@@ -310,6 +312,8 @@ export async function buildGroup({ seedMemberId = null, size = 3, lineup = null,
     description: null,
     adminSummary: msgs.adminSummary,
     seedMemberId: anchor.id,
+    basis: "complementary",
+    fit: [],
     parties: chosen.map(m => ({
       memberId: m.id,
       memberName: m.profile.name || null,
