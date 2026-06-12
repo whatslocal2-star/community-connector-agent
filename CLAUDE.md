@@ -25,6 +25,8 @@ AI-driven community onboarding agent. Profiles local members (vendors, shoppers,
 
 **Convener (admin cockpit in `admin.html`):** review-and-approve tool with 3 collab types — **pairwise intro**, **group collab**, **event-first** (`lib/convener.js`). Generates proposals (complementary fit, semantic fallback when needs/offers sparse) with an admin summary + per-party message. Approving a `collabs` draft (`lib/collabs.js`) delivers it **in-app**: it's attached to each member's `pendingCollabs`, surfaced by the SAME connector persona as numbered options, and the member's reply (`collabResponses`) is recorded — no second bot. Interested parties → a multi-party **chat room** (`lib/collabRooms.js` + `room.js`, rendered marketplace-side). A proceed-majority vote distills a reusable **matchFormat** (`lib/matchFormats.js`); members build a per-format affinity. Liveness (`lib/collabActivity.js`): persistent decliners who also go quiet are pruned from the pool. The pairwise scan is parallelized (concurrent batches) to fit the function timeout. Supersedes the old `convener-search.js`.
 
+**Convener review UX + rules:** each proposal carries a `basis` (`complementary` = real offers↔needs fit, shown as a green chip; `semantic` = profile similarity) and each party a `detail` snapshot — hover a party for its offers/needs, click for the full profile (`member-get.js`). **Member-type rules** (enforced in `loadMatchPool`/`findPairings`/`buildGroup`): shoppers are never collab parties; influencers are amplifiers — never in a pairwise intro, and in a group only as a 3rd+ party after a ≥2-person non-influencer core. **Env toggle:** `env: "real"|"sim"` runs the cockpit against the live network or the isolated **sim test environment** (`sim_members` collection + `sim-offers`/`sim-needs` namespaces, seeded via `seed-sim.js`) — fully separate, so the rich sim data proves complementary matching without touching real data.
+
 **Crons (Trigger.dev):**
 - Daily 8am: scrape subscribed channels → GPT event detection → `eventSuggestions` (pending)
 - Hourly: followup-intros — 48h pending matchLogs → Telnyx SMS or system message
@@ -51,10 +53,13 @@ AI-driven community onboarding agent. Profiles local members (vendors, shoppers,
 | `netlify/functions/lib/composio.js` | Composio `@composio/core` client + `runTool(slug, memberId, args)` |
 | `netlify/functions/lib/supabase.js` | Service-role Supabase client → writes `products`/`vendor_settings` for marketplace |
 | `netlify/functions/verify.js` | Admin: run ownership verification |
-| `netlify/functions/convener.js` | Admin: POST `{mode: pairings\|group\|invent-event\|next-best\|formats\|from-format}` — generate proposals (no writes) |
+| `netlify/functions/convener.js` | Admin: POST `{mode, env: real\|sim}` (pairings\|group\|invent-event\|next-best\|formats\|from-format) — generate proposals (no writes) |
 | `netlify/functions/convener-collabs.js` | Admin: GET queue; POST `{action: save\|approve\|dismiss\|recur\|open-room}` |
 | `netlify/functions/room.js` | Marketplace-facing collab chat API (auth: `MARKETPLACE_API_KEY`, member-scoped) |
-| `netlify/functions/lib/convener.js` | Matching engine: `findPairings` (parallel), `buildGroup`, `inventEvent`, `nextBestForRole`, `writeMessages` |
+| `netlify/functions/member-get.js` | Admin: GET `?id=` → full profile (checks `members` then `sim_members`; click-a-party modal) |
+| `netlify/functions/seed-sim.js` | Admin: POST `{action: seed\|clear\|status}` — the isolated sim test env |
+| `netlify/functions/lib/simSeed.js` | 18 rich interlocking sim members (needs/offers designed to complement) |
+| `netlify/functions/lib/convener.js` | Matching engine: `findPairings` (parallel), `buildGroup`, `inventEvent`, `nextBestForRole`, `writeMessages`; `env` → `resolveEnv` (real vs sim collection+namespace) |
 | `netlify/functions/lib/collabs.js` | `collabs` CRUD + approve→pending delivery; `pendingOptionsFor`, `recordCollabResponse` |
 | `netlify/functions/lib/collabRooms.js` | `collabRooms` + messages + proceed/skip majority vote |
 | `netlify/functions/lib/collabActivity.js` | Liveness gating — `assessPool`, decline tracking, format affinity |
@@ -114,10 +119,14 @@ rejectionReason: "not_local"|"too_promotional"|"already_posted"|"wrong_vibe"|"lo
 ```
 type: "intro"|"group"|"event", status: "flagged"|"approved"|"dismissed", source: "auto"|"manual"
 title, description, adminSummary, seedMemberId, roomId
+basis: "complementary"|"semantic", fit: [direction labels]   // why surfaced
 parties: [{ memberId, memberName, memberType, role, message, score, partyStatus: "proposed"|"in"|"out",
-            invitedAt, response: { decision: "interested"|"declined"|"maybe", note, respondedAt } }]
+            invitedAt, response: { decision: "interested"|"declined"|"maybe", note, respondedAt },
+            detail: { neighborhood, city, vibe, offers[], needs[], description } }]  // hover/why snapshot
 rolesNeeded: [{role, type, filled}], matchLogIds: []
 ```
+
+**`sim_members/{id}`** — isolated sim test env (mirrors `members` profile shape; `seed:true`, `source:"sim"`). Vectors in `sim-offers`/`sim-needs` namespaces. Real flows never read it. Seed/clear via `seed-sim.js`.
 
 **`collabRooms/{id}`** — multi-party chat (marketplace vendor UI renders it)
 ```
@@ -144,6 +153,8 @@ signature, type, typeLineup: [memberType], exampleTitle, wins, sourceCollabIds: 
 - **Pinecone metadata** carries all filterable fields — hard filters run server-side before semantic ranking.
 - **Admin auth:** Bearer `ADMIN_TOKEN` on all `/admin`, `/matches`, `/enrich`, `/subscriptions`, `/event-suggestions`, `/match-log`, `/patch-member`, `/claim-profile`, `/convener`, `/convener-collabs`.
 - **Convener never auto-sends.** Compute modes are read-only; approving delivers in-app via `pendingCollabs`. The connector agent relays options + parses `collabResponses` like it does `searchQuery` — one persona, one thread.
+- **Collab member-type rules:** shoppers are consumers (never a collab party); influencers are amplifiers (never in a pairwise; group-only and only as a 3rd+ party after a ≥2-person non-influencer core). Effective core = vendor/artist/organizer.
+- **Sim env is isolated:** `env:"sim"` ⇒ `sim_members` collection + `sim-*` namespaces. Real flows hardcode the real collection/namespaces, so there's no cross-contamination by construction.
 - **Room API auth:** `/room` uses `MARKETPLACE_API_KEY` (shared secret); the marketplace server asserts `member_id`, verified as a participant. Never trust a client-supplied memberId.
 - **Marketplace endpoints are public** (`marketplace-members`, `marketplace-member`, `marketplace-events`). Strip `phone` before returning.
 - **SMS identical to web** except 1–3 sentence brevity directive; history capped at 20 messages.
@@ -157,7 +168,7 @@ signature, type, typeLineup: [memberType], exampleTitle, wins, sourceCollabIds: 
 
 **Background jobs:** `TRIGGER_SECRET_KEY` (Netlify → lets chat/sms enqueue tasks; without it post-save steps silently skip)
 
-**Collab rooms (cross-repo):** `MARKETPLACE_API_KEY` (Netlify — gates `/room`; ✅ SET). Marketplace side (`community-marketplace`, separate Netlify site) must set `CONNECTOR_URL` + `CONNECTOR_MARKETPLACE_KEY` (= same value) for `app/api/vendor/collabs`.
+**Collab rooms (cross-repo):** `MARKETPLACE_API_KEY` (Netlify — gates `/room`; ✅ SET in prod 2026-06-12, value also in local `.env.local`). Marketplace side (`community-marketplace`, separate Netlify site) must set `CONNECTOR_URL` + `CONNECTOR_MARKETPLACE_KEY` (= same value) for `app/api/vendor/collabs`.
 
 **Enrichment + verification:** `GOOGLE_PLACES_API_KEY`, `FIRECRAWL_API_KEY`, `GEMINI_API_KEY`
 
@@ -189,6 +200,7 @@ signature, type, typeLineup: [memberType], exampleTitle, wins, sourceCollabIds: 
 
 **Convener / collab rooms:**
 - ✅ Convener cockpit + in-app options + rooms + liveness + format learning shipped to prod (Netlify + Trigger.dev); `offers`/`needs` namespaces backfilled.
+- 🟡 **Local-only refinements committed on `main`, NOT yet pushed/deployed** (user is dogfooding first): tabbed cockpit + button-visibility fix, parallelized pairwise scan (~5.5s), `basis` fit chips, shopper exclusion, influencer group-only/3rd+ rule, isolated **sim env** (`seed-sim.js`/`simSeed.js`), party hover detail + click-to-full-profile (`member-get.js`). When dogfooding passes → `netlify deploy --prod` (+ optionally seed sim in prod).
 - ⬜ Marketplace `feat/collab-rooms` branch (pushed, not merged/deployed) — merge + set `CONNECTOR_URL`/`CONNECTOR_MARKETPLACE_KEY` on the marketplace site; nav link in `app/vendor/layout.tsx` left uncommitted with other WIP.
 - ⬜ First `collabRooms` `participantIds` array-contains query may prompt for a Firestore single-field index.
 - ⬜ Delete dead `convener-search.js`.

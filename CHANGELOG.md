@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-12 (Convener review UX, matching rules, sim env — local, pre-deploy)
+Refinements after dogfooding the deployed cockpit. All committed on `main` locally; **not yet pushed/deployed** (user is confirming locally first).
+- **Tabbed cockpit + button-visibility fix:** the panel is now tabs (Pairwise · Group · Create event · Review queue · Learned formats), each with its own trigger + results. Fixed `.refresh-btn` rendering white-on-white on the light panel (buttons were invisible).
+- **"Why this match":** each proposal shows a `basis` chip — green **complementary fit** (real offers↔needs) vs grey **similar profile** (semantic). Carried through compose + persisted on the collab.
+- **Party analysis:** hover any party for a snapshot (location, vibe, offers, needs); click for the full profile modal (`member-get.js` — works for real + sim members).
+- **Matching rules:** shoppers excluded from the collab pool (consumers, not collaborators); influencers are amplifiers — never in a pairwise, group-only and only as a 3rd+ party after a ≥2-person non-influencer core.
+- **Isolated sim test environment:** `sim_members` collection + `sim-offers`/`sim-needs` Pinecone namespaces, 18 rich interlocking members (`lib/simSeed.js`), seed/clear via `seed-sim.js`, Real/Sim toggle in the UI. Proves complementary matching (verified: muralist↔cafe, DJ↔wine bar, food-influencer↔restaurant) with zero leakage into real data. `env` threads through the whole engine (`resolveEnv` → collection + namespace).
+- **Perf:** parallelized the pairwise scan (concurrent batches + concurrent compose) — was timing out (~30s) at the higher default, now ~5.5s.
+
 ## 2026-06-12 (Convener redesign → prod)
 - **Convener cockpit:** rebuilt the admin Convener from a search+log tool into a tabbed review-and-approve cockpit with 3 collab types — pairwise intro, group collab, event-first. New `lib/convener.js` matching engine (complementary fit + semantic fallback), `lib/collabs.js` `collabs` model, `convener.js` / `convener-collabs.js` endpoints.
 - **In-app delivery loop:** approving a collab attaches it to each member's `pendingCollabs`; the same connector persona relays numbered options and records `collabResponses` (no second bot). `lib/collabRooms.js` + `room.js` + marketplace `app/vendor/collabs` give interested parties a multi-party chat room with a proceed/skip majority vote.
