@@ -167,7 +167,9 @@ export async function writeMessages(members, { type = "intro", title = null, des
 export async function findPairings({ limit = 12, excludePairKeys = [], pool = null, env = "real" } = {}) {
   const { collection, nsPrefix } = resolveEnv(env);
   pool = pool || await loadMatchPool(collection);
-  const idx = poolIndex(pool);
+  // Influencers are amplifiers, not a 2-party core — never in a pairwise intro.
+  const candidates = pool.filter(m => m.profile.memberType !== "influencer");
+  const idx = poolIndex(candidates);
   const seen = new Set(excludePairKeys);
   const pairs = [];
   const target = limit * 2; // collect a few extra, then rank
@@ -216,8 +218,8 @@ export async function findPairings({ limit = 12, excludePairKeys = [], pool = nu
   // Scan in concurrent batches so the per-member embed+query calls overlap.
   // Each is independent; we dedupe + rank after. Stop once we have enough.
   const BATCH = 10;
-  for (let i = 0; i < pool.length && pairs.length < target; i += BATCH) {
-    const found = await Promise.all(pool.slice(i, i + BATCH).map(findCounterpart));
+  for (let i = 0; i < candidates.length && pairs.length < target; i += BATCH) {
+    const found = await Promise.all(candidates.slice(i, i + BATCH).map(findCounterpart));
     for (const f of found) {
       if (f) addPair(f.m, f.other, f.score, f.fit, f.basis);
     }
@@ -279,12 +281,16 @@ export async function buildGroup({ seedMemberId = null, size = 3, lineup = null,
   pool = pool || await loadMatchPool(collection);
   const idx = poolIndex(pool);
 
+  // Influencers are amplifiers — they join a group only once it has a real
+  // ≥2-person core, never as the anchor of a forming group.
+  const coreCount = (members) => members.filter(m => m.profile.memberType !== "influencer").length;
+
   let anchor = seedMemberId ? idx.get(seedMemberId) : null;
   if (!anchor) {
-    // Autonomous: richest needs+offers signal. When a target lineup is given,
-    // anchor on someone whose type the lineup actually calls for.
-    const eligible = lineup?.length ? pool.filter(m => lineup.includes(m.profile.memberType)) : pool;
-    anchor = (eligible.length ? eligible : pool)
+    // Autonomous: richest needs+offers signal, never an influencer anchor.
+    const nonInf = pool.filter(m => m.profile.memberType !== "influencer");
+    const eligible = lineup?.length ? nonInf.filter(m => lineup.includes(m.profile.memberType)) : nonInf;
+    anchor = (eligible.length ? eligible : nonInf)
       .map(m => ({ m, signal: (buildNeedsText(m.profile) + buildOffersText(m.profile)).length }))
       .sort((a, b) => b.signal - a.signal)[0]?.m;
   }
@@ -315,6 +321,8 @@ export async function buildGroup({ seedMemberId = null, size = 3, lineup = null,
     const cand = idx.get(r.id);
     if (!cand || usedIds.has(cand.id)) continue;
     const t = cand.profile.memberType;
+    // Influencer can only join once there's a 2-person non-influencer core.
+    if (t === "influencer" && coreCount(chosen) < 2) continue;
     if (needTypes) {
       const ti = needTypes.indexOf(t);
       if (ti < 0) continue;        // not a role this lineup still needs
@@ -327,7 +335,8 @@ export async function buildGroup({ seedMemberId = null, size = 3, lineup = null,
     usedIds.add(cand.id);
   }
 
-  if (chosen.length < 2) return null;
+  // A valid group needs a real ≥2-person non-influencer core.
+  if (coreCount(chosen) < 2) return null;
 
   const roles = {};
   for (const m of chosen) roles[m.id] = ROLE_FOR_TYPE[m.profile.memberType] || "collaborator";
