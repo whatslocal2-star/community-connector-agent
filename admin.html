@@ -67,6 +67,14 @@
       color: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer;
     }
     .refresh-btn:hover { background: rgba(255,255,255,0.25); }
+    /* The Convener panel sits on a LIGHT background, but .refresh-btn is
+       white-on-transparent for the dark header — override so its buttons are
+       visible. Primary generators/approve are solid green; the rest outlined. */
+    .convener .refresh-btn {
+      background: #059669; color: #fff; border: 1px solid #059669;
+    }
+    .convener .refresh-btn:hover { background: #047857; border-color: #047857; }
+    .convener .refresh-btn:disabled { opacity: .5; cursor: default; }
     .logout-btn {
       background: none; border: none; color: rgba(255,255,255,0.7);
       font-size: 13px; cursor: pointer;
