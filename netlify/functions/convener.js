@@ -31,6 +31,7 @@ export const handler = async (event) => {
   catch { return json(400, { error: "Invalid JSON" }); }
 
   const mode = body.mode || "pairings";
+  const env = body.env === "sim" ? "sim" : "real";
 
   try {
     if (mode === "pairings") {
@@ -41,19 +42,19 @@ export const handler = async (event) => {
         .flatMap(collabPairKeys);
       const limit = Math.min(Math.max(Number(body.limit) || 12, 1), 25);
       const compose = Math.min(Math.max(Number(body.compose) || 4, 1), 10);
-      const drafts = await proposePairings({ limit, compose, excludePairKeys: exclude });
-      return json(200, { mode, count: drafts.length, drafts });
+      const drafts = await proposePairings({ limit, compose, excludePairKeys: exclude, env });
+      return json(200, { mode, env, count: drafts.length, drafts });
     }
 
     if (mode === "group") {
       const size = Math.min(Math.max(Number(body.size) || 3, 2), 5);
-      const draft = await buildGroup({ seedMemberId: body.seedMemberId || null, size });
+      const draft = await buildGroup({ seedMemberId: body.seedMemberId || null, size, env });
       if (!draft) return json(200, { mode, draft: null, note: "Not enough complementary members to form a group yet." });
       return json(200, { mode, draft });
     }
 
     if (mode === "invent-event") {
-      const draft = await inventEvent({ hint: body.hint || null });
+      const draft = await inventEvent({ hint: body.hint || null, env });
       if (!draft) return json(200, { mode, draft: null, note: "Couldn't invent an event from the current network yet." });
       return json(200, { mode, draft });
     }
@@ -68,7 +69,7 @@ export const handler = async (event) => {
       const fmt = await loadFormat(body.signature);
       const lineup = fmt?.typeLineup?.length ? fmt.typeLineup : parseLineup(body.signature);
       if (!lineup.length) return json(404, { error: "format not found" });
-      const draft = await buildGroup({ lineup });
+      const draft = await buildGroup({ lineup, env });
       if (!draft) return json(200, { mode, draft: null, note: "Couldn't assemble a fresh lineup for this format yet." });
       // Carry the worked title forward as a starting point.
       if (fmt?.exampleTitle && !draft.title) draft.title = fmt.exampleTitle;
@@ -82,6 +83,7 @@ export const handler = async (event) => {
         roleType: body.roleType || null,
         excludeIds: Array.isArray(body.excludeIds) ? body.excludeIds : [],
         limit: Math.min(Math.max(Number(body.limit) || 8, 1), 20),
+        env,
       });
       return json(200, { mode, count: candidates.length, candidates });
     }

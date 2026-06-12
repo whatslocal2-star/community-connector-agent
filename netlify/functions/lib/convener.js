@@ -42,11 +42,20 @@ const ROLE_FOR_TYPE = {
   shopper: "community member",
 };
 
+// Environments. "real" = live data; "sim" = the isolated test environment
+// (separate Firestore collection + Pinecone namespaces). Real flows never read
+// the sim collection or namespaces, so there's no interference by construction.
+const ENVS = {
+  real: { collection: "members", nsPrefix: "" },
+  sim: { collection: "sim_members", nsPrefix: "sim-" },
+};
+export const resolveEnv = (env) => ENVS[env] || ENVS.real;
+
 // All members with a profile. No orderBy so unclaimed/harvested members
 // (which may lack lastActiveAt) are included in the matching pool.
-export async function loadMatchPool(limit = MATCH_POOL_LIMIT) {
+export async function loadMatchPool(collection = "members", limit = MATCH_POOL_LIMIT) {
   const db = getDb();
-  const snap = await db.collection("members").limit(limit).get();
+  const snap = await db.collection(collection).limit(limit).get();
   return snap.docs
     .map(d => {
       const { history, ...rest } = d.data();
@@ -140,8 +149,9 @@ export async function writeMessages(members, { type = "intro", title = null, des
 // ── Type 1: pairwise intros ────────────────────────────────────────────────
 // Cheap ranked pair candidates (no LLM). For each member, find its single best
 // complementary counterpart, dedupe symmetric pairs, boost cross-type fits.
-export async function findPairings({ limit = 12, excludePairKeys = [], pool = null } = {}) {
-  pool = pool || await loadMatchPool();
+export async function findPairings({ limit = 12, excludePairKeys = [], pool = null, env = "real" } = {}) {
+  const { collection, nsPrefix } = resolveEnv(env);
+  pool = pool || await loadMatchPool(collection);
   const idx = poolIndex(pool);
   const seen = new Set(excludePairKeys);
   const pairs = [];
@@ -172,7 +182,7 @@ export async function findPairings({ limit = 12, excludePairKeys = [], pool = nu
     const needsText = buildNeedsText(m.profile);
     const offersText = buildOffersText(m.profile);
     if (needsText.trim() || offersText.trim()) {
-      const ranked = await queryComplementary({ needsText, offersText, excludeIds: [m.id], limit: 5 });
+      const ranked = await queryComplementary({ needsText, offersText, excludeIds: [m.id], limit: 5, nsPrefix });
       for (const r of ranked) {
         const other = idx.get(r.id);
         if (other) return { m, other, score: r.score, fit: (r.directions || []).map(d => DIRECTION_LABEL[d] || d), basis: "complementary" };
@@ -234,9 +244,10 @@ export async function composePairing(pair, { pool = null } = {}) {
 // Orchestrator for the "Find pairings" action and the scan cron: load the pool
 // once, rank pairs, and compose the top `compose` into full drafts with
 // messages. Cheaper than calling findPairings + composePairing separately.
-export async function proposePairings({ limit = 12, compose = 6, excludePairKeys = [] } = {}) {
-  const pool = await loadMatchPool();
-  const pairs = await findPairings({ limit, excludePairKeys, pool });
+export async function proposePairings({ limit = 12, compose = 6, excludePairKeys = [], env = "real" } = {}) {
+  const { collection } = resolveEnv(env);
+  const pool = await loadMatchPool(collection);
+  const pairs = await findPairings({ limit, excludePairKeys, pool, env });
   // Compose the top pairs concurrently — each is one independent LLM call.
   const drafts = await Promise.all(pairs.slice(0, compose).map(pair => composePairing(pair, { pool })));
   return drafts.filter(Boolean);
@@ -247,8 +258,9 @@ export async function proposePairings({ limit = 12, compose = 6, excludePairKeys
 // given; otherwise seeds from the strongest available member. An explicit
 // `lineup` (member types) clones a learned format; absent that, the anchor's
 // own format affinity shapes the lineup, falling back to a diverse mix.
-export async function buildGroup({ seedMemberId = null, size = 3, lineup = null, pool = null } = {}) {
-  pool = pool || await loadMatchPool();
+export async function buildGroup({ seedMemberId = null, size = 3, lineup = null, pool = null, env = "real" } = {}) {
+  const { collection, nsPrefix } = resolveEnv(env);
+  pool = pool || await loadMatchPool(collection);
   const idx = poolIndex(pool);
 
   let anchor = seedMemberId ? idx.get(seedMemberId) : null;
@@ -281,7 +293,7 @@ export async function buildGroup({ seedMemberId = null, size = 3, lineup = null,
 
   const needsText = buildNeedsText(anchor.profile);
   const offersText = buildOffersText(anchor.profile);
-  const ranked = await queryComplementary({ needsText, offersText, excludeIds: [anchor.id], limit: 25 });
+  const ranked = await queryComplementary({ needsText, offersText, excludeIds: [anchor.id], limit: 25, nsPrefix });
   for (const r of ranked) {
     if (chosen.length >= size) break;
     const cand = idx.get(r.id);
@@ -329,10 +341,11 @@ export async function buildGroup({ seedMemberId = null, size = 3, lineup = null,
 // Replace flow: ranked candidates that fit a role, excluding members already in
 // the collab. roleType (optional) hard-filters to a member type. Returns a
 // selectable list (no messages — messages are written on approve).
-export async function nextBestForRole({ needsText, roleType = null, excludeIds = [], limit = 8, pool = null } = {}) {
-  pool = pool || await loadMatchPool();
+export async function nextBestForRole({ needsText, roleType = null, excludeIds = [], limit = 8, pool = null, env = "real" } = {}) {
+  const { collection, nsPrefix } = resolveEnv(env);
+  pool = pool || await loadMatchPool(collection);
   const idx = poolIndex(pool);
-  const ranked = await queryComplementary({ needsText: needsText || "", excludeIds, limit: limit * 3 });
+  const ranked = await queryComplementary({ needsText: needsText || "", excludeIds, limit: limit * 3, nsPrefix });
   const out = [];
   for (const r of ranked) {
     const m = idx.get(r.id);
@@ -367,8 +380,9 @@ Rules:
 - Propose 2-4 roles, drawn from member types that actually appear in the snapshot.
 - Be specific and realistic; do not invent member names. No emojis.`;
 
-export async function inventEvent({ hint = null, sampleSize = 40 } = {}) {
-  const pool = await loadMatchPool();
+export async function inventEvent({ hint = null, sampleSize = 40, env = "real" } = {}) {
+  const { collection } = resolveEnv(env);
+  const pool = await loadMatchPool(collection);
   // Compact landscape: member types + a few offer phrases each, bounded.
   const sample = pool.slice(0, sampleSize).map(m => ({
     type: m.profile.memberType || "unknown",
@@ -405,6 +419,7 @@ export async function inventEvent({ hint = null, sampleSize = 40 } = {}) {
       excludeIds: [],
       limit: 8,
       pool,
+      env,
     });
     filled.push({ role: r.role, type: r.type || null, candidates });
   }

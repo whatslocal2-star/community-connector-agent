@@ -161,7 +161,9 @@ export async function upsertMemberVector(memberId, profile) {
 // Bidirectional complementary search. Given a member's needs/offers text,
 // returns ranked candidate ids who complement them. Each result carries the
 // direction(s) it matched on so callers can explain the fit.
-export async function queryComplementary({ needsText, offersText, excludeIds = [], topK = 50, limit = 10, minScore = 0.2 } = {}) {
+// `nsPrefix` selects the namespace set — "" for real data (offers/needs),
+// "sim-" for the isolated sim environment (sim-offers/sim-needs).
+export async function queryComplementary({ needsText, offersText, excludeIds = [], topK = 50, limit = 10, minScore = 0.2, nsPrefix = "" } = {}) {
   if (!process.env.PINECONE_API_KEY) return [];
   const index = getIndex();
   const exclude = new Set(excludeIds);
@@ -178,15 +180,36 @@ export async function queryComplementary({ needsText, offersText, excludeIds = [
   };
 
   if (needsText?.trim()) {
-    const r = await index.namespace("offers").query({ vector: await embedText(needsText), topK, includeMetadata: true });
+    const r = await index.namespace(`${nsPrefix}offers`).query({ vector: await embedText(needsText), topK, includeMetadata: true });
     accumulate(r.matches, "they_offer_what_you_need");
   }
   if (offersText?.trim()) {
-    const r = await index.namespace("needs").query({ vector: await embedText(offersText), topK, includeMetadata: true });
+    const r = await index.namespace(`${nsPrefix}needs`).query({ vector: await embedText(offersText), topK, includeMetadata: true });
     accumulate(r.matches, "they_need_what_you_offer");
   }
 
   return [...scores.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+// Embed a member's offers/needs into a prefixed namespace pair — used to seed
+// the isolated sim environment (`sim-offers`/`sim-needs`) without touching the
+// real complementary namespaces.
+export async function upsertCollabVectorsToNamespace(memberId, profile, prefix = "") {
+  if (!process.env.PINECONE_API_KEY) return;
+  const index = getIndex();
+  const md = buildCollabMetadata(profile);
+  const offersText = buildOffersText(profile);
+  const needsText = buildNeedsText(profile);
+  if (offersText.trim()) await index.namespace(`${prefix}offers`).upsert([{ id: memberId, values: await embedText(offersText), metadata: md }]);
+  if (needsText.trim()) await index.namespace(`${prefix}needs`).upsert([{ id: memberId, values: await embedText(needsText), metadata: md }]);
+}
+
+export async function clearNamespaces(names = []) {
+  if (!process.env.PINECONE_API_KEY) return;
+  const index = getIndex();
+  for (const ns of names) {
+    try { await index.namespace(ns).deleteAll(); } catch (e) { console.error("clearNamespace", ns, e.message); }
+  }
 }
 
 function buildPineconeMetadata(profile) {
