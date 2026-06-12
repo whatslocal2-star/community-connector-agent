@@ -381,6 +381,13 @@
     }
     .bubble-row.user .bubble-role { text-align: right; }
     .convo-empty { color: #9ca3af; font-size: 13px; padding: 20px 0; text-align: center; }
+    .cv-tab {
+      padding: 8px 14px; font-size: 13px; font-family: inherit; color: #6b7280;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      cursor: pointer; margin-bottom: -1px;
+    }
+    .cv-tab:hover { color: #111827; }
+    .cv-tab.active { color: #111827; font-weight: 600; border-bottom-color: #059669; }
   </style>
 </head>
 <body>
@@ -415,38 +422,54 @@
     <div style="font-weight:600;margin-bottom:4px;">🤝 Convener — review &amp; approve collaborations</div>
     <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Generate proposals, then approve or dismiss. Nothing is sent — approving saves a draft and seeds the learning loop.</div>
 
-    <div style="display:grid;gap:10px;margin-bottom:14px;">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:600;color:#374151;width:120px;flex-shrink:0;">1 · Pairwise intros</span>
-        <button class="refresh-btn" onclick="cvFindPairings(this)">Find pairings</button>
-        <span style="font-size:11px;color:#9ca3af;">scans the network for two-party fits</span>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:600;color:#374151;width:120px;flex-shrink:0;">2 · Group collab</span>
-        <input id="cvGroupSeed" placeholder="Anchor member ID (optional)" style="flex:1;min-width:200px;padding:7px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
-        <button class="refresh-btn" onclick="cvBuildGroup(this)">Build group</button>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:600;color:#374151;width:120px;flex-shrink:0;">3 · Create event</span>
-        <input id="cvEventHint" placeholder="Event hint (optional) — e.g. fall night market" style="flex:1;min-width:200px;padding:7px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
-        <button class="refresh-btn" onclick="cvInventEvent(this)">Invent event</button>
-      </div>
+    <!-- Mode tabs -->
+    <div id="cvTabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid #e5e7eb;">
+      <button class="cv-tab" data-tab="pairwise" onclick="cvTab('pairwise')">Pairwise intros</button>
+      <button class="cv-tab" data-tab="group" onclick="cvTab('group')">Group collab</button>
+      <button class="cv-tab" data-tab="event" onclick="cvTab('event')">Create event</button>
+      <button class="cv-tab" data-tab="queue" onclick="cvTab('queue')">Review queue</button>
+      <button class="cv-tab" data-tab="formats" onclick="cvTab('formats')">Learned formats</button>
     </div>
 
-    <div id="cvDrafts"></div>
+    <!-- Pairwise intros -->
+    <div class="cv-pane" id="cvPane-pairwise">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="refresh-btn" onclick="cvFindPairings(this)">Find pairings</button>
+        <span style="font-size:12px;color:#9ca3af;">scans the network for two-party fits, with a message for each side</span>
+      </div>
+      <div id="cvResults-pairwise"></div>
+    </div>
 
-    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-weight:600;font-size:13px;color:#374151;">Review queue</span>
-        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadCollabQueue()">↻</button>
+    <!-- Group collab -->
+    <div class="cv-pane" id="cvPane-group" style="display:none;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+        <input id="cvGroupSeed" placeholder="Anchor member ID (optional — builds around them)" style="flex:1;min-width:220px;padding:7px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
+        <button class="refresh-btn" onclick="cvBuildGroup(this)">Build group</button>
+      </div>
+      <div id="cvResults-group"></div>
+    </div>
+
+    <!-- Create event -->
+    <div class="cv-pane" id="cvPane-event" style="display:none;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+        <input id="cvEventHint" placeholder="Event hint (optional) — e.g. fall night market" style="flex:1;min-width:220px;padding:7px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
+        <button class="refresh-btn" onclick="cvInventEvent(this)">Invent event</button>
+      </div>
+      <div id="cvResults-event"></div>
+    </div>
+
+    <!-- Review queue -->
+    <div class="cv-pane" id="cvPane-queue" style="display:none;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadCollabQueue()">↻ Refresh</button>
       </div>
       <div id="cvQueue"><p style="color:#9ca3af;font-size:13px;">Loading…</p></div>
     </div>
 
-    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-weight:600;font-size:13px;color:#374151;">Learned formats</span>
-        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadCollabFormats()">↻</button>
+    <!-- Learned formats -->
+    <div class="cv-pane" id="cvPane-formats" style="display:none;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadCollabFormats()">↻ Refresh</button>
       </div>
       <div id="cvFormats"><p style="color:#9ca3af;font-size:13px;">—</p></div>
     </div>
@@ -529,8 +552,7 @@
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "flex";
     loadMembers();
-    loadCollabQueue();
-    loadCollabFormats();
+    cvTab('pairwise');
   }
 
   async function loadMembers() {
@@ -969,6 +991,14 @@
 
   function cvBadge(t) { t = t || "unknown"; return `<span class="badge badge-${t}">${t}</span>`; }
 
+  // ── Tabs: switch modes, lazy-load the queue/formats panes ──
+  function cvTab(name) {
+    document.querySelectorAll('.cv-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('.cv-pane').forEach(p => { p.style.display = (p.id === `cvPane-${name}`) ? 'block' : 'none'; });
+    if (name === 'queue') loadCollabQueue();
+    if (name === 'formats') loadCollabFormats();
+  }
+
   // Per-party response chip shown on approved collabs (in-app reply status).
   function cvRespChip(p) {
     const chip = (bg, fg, txt) => `<span style="font-size:10px;background:${bg};color:${fg};padding:1px 6px;border-radius:6px;">${txt}</span>`;
@@ -980,56 +1010,69 @@
     return chip("#f3f4f6", "#6b7280", "awaiting reply");
   }
 
-  // ── Generators ──
+  // ── Generators (each renders into its own tab's results pane) ──
   async function cvFindPairings(btn) {
     const orig = btn.textContent; btn.disabled = true; btn.textContent = "Scanning…";
+    cvBusy("pairwise", "Scanning the network for two-party fits…");
     try {
       const data = await cvCompute({ mode: "pairings", limit: 12, compose: 6 });
-      if (data.drafts?.length) cvAddDrafts(data.drafts);
-      else cvNote("No new pairings surfaced — the network may still be filling in.");
-    } catch (e) { cvNote("Pairing scan failed."); }
+      if (data.drafts?.length) cvAddDrafts(data.drafts, "pairwise");
+      else cvNote("No new pairings surfaced — the network may still be filling in.", "pairwise");
+    } catch (e) { cvNote("Pairing scan failed.", "pairwise"); }
     finally { btn.disabled = false; btn.textContent = orig; }
   }
 
   async function cvBuildGroup(btn) {
     const seed = document.getElementById("cvGroupSeed").value.trim();
     const orig = btn.textContent; btn.disabled = true; btn.textContent = "Building…";
+    cvBusy("group", "Building a complementary lineup…");
     try {
       const data = await cvCompute({ mode: "group", seedMemberId: seed || undefined });
-      if (data.draft) cvAddDrafts([data.draft]); else cvNote(data.note || "No group found.");
-    } catch (e) { cvNote("Group build failed."); }
+      if (data.draft) cvAddDrafts([data.draft], "group"); else cvNote(data.note || "No group found.", "group");
+    } catch (e) { cvNote("Group build failed.", "group"); }
     finally { btn.disabled = false; btn.textContent = orig; }
   }
 
   async function cvInventEvent(btn) {
     const hint = document.getElementById("cvEventHint").value.trim();
     const orig = btn.textContent; btn.disabled = true; btn.textContent = "Inventing…";
+    cvBusy("event", "Inventing an event from the current network…");
     try {
       const data = await cvCompute({ mode: "invent-event", hint: hint || undefined });
-      if (data.draft) cvAddDrafts([data.draft]); else cvNote(data.note || "No event invented.");
-    } catch (e) { cvNote("Event invention failed."); }
+      if (data.draft) cvAddDrafts([data.draft], "event"); else cvNote(data.note || "No event invented.", "event");
+    } catch (e) { cvNote("Event invention failed.", "event"); }
     finally { btn.disabled = false; btn.textContent = orig; }
   }
 
-  // ── Draft store (client-side, until saved to queue) ──
+  // ── Draft store (client-side, until saved to queue). Each draft is tagged
+  //    with the mode that produced it so results render in that mode's pane. ──
   let cvDraftSeq = 0;
   const cvDraftStore = {};
 
-  function cvAddDrafts(drafts) {
-    for (const d of drafts) cvDraftStore["d" + (cvDraftSeq++)] = d;
-    renderDrafts();
+  function cvBusy(mode, msg) {
+    document.getElementById(`cvResults-${mode}`).innerHTML = `<p style="color:#9ca3af;font-size:13px;">${msg}</p>`;
   }
-  function cvNote(msg) {
+  function cvAddDrafts(drafts, mode) {
+    for (const d of drafts) { d._mode = mode; cvDraftStore["d" + (cvDraftSeq++)] = d; }
+    renderDraftsFor(mode);
+  }
+  function cvNote(msg, mode) {
+    const box = document.getElementById(`cvResults-${mode}`);
+    if (!Object.values(cvDraftStore).some(d => d._mode === mode)) box.innerHTML = "";
     const p = document.createElement("p");
     p.style.cssText = "color:#9ca3af;font-size:13px;margin:4px 0;";
     p.textContent = msg;
-    document.getElementById("cvDrafts").prepend(p);
+    box.prepend(p);
   }
-  function cvDiscardDraft(key) { delete cvDraftStore[key]; renderDrafts(); }
+  function cvDiscardDraft(key) {
+    const mode = cvDraftStore[key]?._mode;
+    delete cvDraftStore[key];
+    if (mode) renderDraftsFor(mode);
+  }
 
-  function renderDrafts() {
-    const box = document.getElementById("cvDrafts");
-    const keys = Object.keys(cvDraftStore);
+  function renderDraftsFor(mode) {
+    const box = document.getElementById(`cvResults-${mode}`);
+    const keys = Object.keys(cvDraftStore).filter(k => cvDraftStore[k]._mode === mode);
     if (!keys.length) { box.innerHTML = ""; return; }
     box.innerHTML = `<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Proposals (not yet saved)</div>` +
       keys.map(k => cvDraftStore[k].type === "event" ? eventDraftCard(k, cvDraftStore[k]) : draftCard(k, cvDraftStore[k])).join("");
@@ -1096,7 +1139,7 @@
     if (d.parties.some(p => p.memberId === c.memberId)) return;
     d.parties.push({ memberId: c.memberId, memberName: c.memberName, memberType: c.memberType, role: rc.role, message: null, score: c.score, partyStatus: "in" });
     const rn = (d.rolesNeeded || []).find(r => r.role === rc.role); if (rn) rn.filled = true;
-    renderDrafts();
+    renderDraftsFor(d._mode);
   }
 
   async function cvSaveDraft(key, btn) {
@@ -1112,7 +1155,7 @@
           rolesNeeded: d.rolesNeeded || [], seedMemberId: d.seedMemberId ?? null,
         },
       });
-      if (data.ok) { delete cvDraftStore[key]; renderDrafts(); loadCollabQueue(); }
+      if (data.ok) { const mode = cvDraftStore[key]?._mode; delete cvDraftStore[key]; if (mode) renderDraftsFor(mode); loadCollabQueue(); }
       else { btn.disabled = false; btn.textContent = "Save to queue"; alert(data.error || "save failed"); }
     } catch (e) { btn.disabled = false; btn.textContent = "Save to queue"; }
   }
@@ -1319,8 +1362,9 @@
     const orig = btn.textContent; btn.disabled = true; btn.textContent = "Building…";
     try {
       const data = await cvCompute({ mode: "from-format", signature });
-      if (data.draft) cvAddDrafts([data.draft]); else cvNote(data.note || "No fresh lineup found.");
-    } catch (e) { cvNote("Clone failed."); }
+      if (data.draft) { cvAddDrafts([data.draft], "group"); cvTab("group"); }
+      else cvNote(data.note || "No fresh lineup found.", "group");
+    } catch (e) { cvNote("Clone failed.", "group"); }
     finally { btn.disabled = false; btn.textContent = orig; }
   }
 
