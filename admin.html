@@ -412,19 +412,35 @@
   <div class="filters" id="filters"></div>
 
   <div class="convener" id="convener" style="margin:0 24px 16px;padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;">
-    <div style="font-weight:600;margin-bottom:8px;">🤝 Convener — find collaborators for an objective</div>
-    <textarea id="convenerObjective" rows="2" placeholder="e.g. an event series about places of the world — need artists, a venue, and food vendors" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font:inherit;box-sizing:border-box;"></textarea>
-    <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap;">
-      <input id="convenerAnchor" placeholder="Anchor member ID (optional — log intros from this member)" style="flex:1;min-width:240px;padding:8px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
-      <button class="refresh-btn" onclick="convenerSearch()">Find collaborators</button>
+    <div style="font-weight:600;margin-bottom:4px;">🤝 Convener — review &amp; approve collaborations</div>
+    <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Generate proposals, then approve or dismiss. Nothing is sent — approving saves a draft and seeds the learning loop.</div>
+
+    <div style="display:grid;gap:10px;margin-bottom:14px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:600;color:#374151;width:120px;flex-shrink:0;">1 · Pairwise intros</span>
+        <button class="refresh-btn" onclick="cvFindPairings(this)">Find pairings</button>
+        <span style="font-size:11px;color:#9ca3af;">scans the network for two-party fits</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:600;color:#374151;width:120px;flex-shrink:0;">2 · Group collab</span>
+        <input id="cvGroupSeed" placeholder="Anchor member ID (optional)" style="flex:1;min-width:200px;padding:7px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
+        <button class="refresh-btn" onclick="cvBuildGroup(this)">Build group</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:600;color:#374151;width:120px;flex-shrink:0;">3 · Create event</span>
+        <input id="cvEventHint" placeholder="Event hint (optional) — e.g. fall night market" style="flex:1;min-width:200px;padding:7px;border:1px solid #d1d5db;border-radius:8px;font:inherit;" />
+        <button class="refresh-btn" onclick="cvInventEvent(this)">Invent event</button>
+      </div>
     </div>
-    <div id="convenerResults" style="margin-top:12px;"></div>
+
+    <div id="cvDrafts"></div>
+
     <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-weight:600;font-size:13px;color:#374151;">Recent intros — mark how they went</span>
-        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadRecentIntros()">↻</button>
+        <span style="font-weight:600;font-size:13px;color:#374151;">Review queue</span>
+        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadCollabQueue()">↻</button>
       </div>
-      <div id="convenerIntros"><p style="color:#9ca3af;font-size:13px;">Loading…</p></div>
+      <div id="cvQueue"><p style="color:#9ca3af;font-size:13px;">Loading…</p></div>
     </div>
   </div>
 
@@ -505,7 +521,7 @@
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "flex";
     loadMembers();
-    loadRecentIntros();
+    loadCollabQueue();
   }
 
   async function loadMembers() {
@@ -919,168 +935,302 @@
     return `${d}d ago`;
   }
 
-  // ── Convener: complementary collaborator search ──
-  async function convenerSearch() {
-    const objective = document.getElementById("convenerObjective").value.trim();
-    const results = document.getElementById("convenerResults");
-    if (!objective) { results.innerHTML = ""; return; }
-    results.innerHTML = `<p style="color:#9ca3af;font-size:13px">Searching the community…</p>`;
-    const token = sessionStorage.getItem("admin_token");
-    try {
-      const res = await fetch("/.netlify/functions/convener-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ objective, limit: 12 }),
-      });
-      if (res.status === 401) { logout(); return; }
-      const data = await res.json();
-      if (!data.candidates?.length) {
-        results.innerHTML = `<p style="color:#9ca3af;font-size:13px">No collaborators surfaced yet — the network may still be filling in (run /backfill-structured?reembedAll=1 once after deploy).</p>`;
-        return;
-      }
-      results.innerHTML = data.candidates.map(convenerCard).join("");
-    } catch {
-      results.innerHTML = `<p style="color:#dc2626;font-size:13px">Search failed.</p>`;
-    }
+  // ── Convener cockpit ──────────────────────────────────────────────────
+  // Generators produce drafts (preview, unsaved) → save to the review queue →
+  // approve (freezes + seeds the learning loop) or dismiss. Nothing is sent.
+  function cvToken() { return sessionStorage.getItem("admin_token"); }
+
+  async function cvCompute(payload) {
+    const res = await fetch("/.netlify/functions/convener", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cvToken()}` },
+      body: JSON.stringify(payload),
+    });
+    if (res.status === 401) { logout(); throw new Error("unauth"); }
+    return res.json();
   }
 
-  function convenerCard(c) {
-    const type = c.memberType || "unknown";
-    const loc = [c.neighborhood, c.city].filter(Boolean).join(", ");
-    const offers = (c.offers || []).slice(0, 3).join(", ");
-    const fit = (c.fit || []).join(" · ");
-    const unclaimed = c.status === "unclaimed"
-      ? ` <span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:6px;">unclaimed</span>` : "";
-    return `<div class="match-card" style="cursor:default;">
-      <div class="match-score">${Math.round((c.score || 0) * 100)}</div>
-      <div class="match-info" style="flex:1;">
-        <div class="match-name"><span class="badge badge-${type}">${type}</span> <strong>${escapeHtml(c.name || c.id)}</strong>${unclaimed}</div>
-        ${offers ? `<div class="match-summary">offers: ${escapeHtml(offers)}</div>` : ""}
-        ${c.description ? `<div class="match-summary">${escapeHtml(c.description)}</div>` : ""}
-        ${loc ? `<div class="match-location">${escapeHtml(loc)}</div>` : ""}
-        ${fit ? `<div style="font-size:11px;color:#059669;margin-top:2px;">${escapeHtml(fit)}</div>` : ""}
+  async function cvCollab(method, payload) {
+    const opts = { method, headers: { Authorization: `Bearer ${cvToken()}` } };
+    if (payload) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(payload); }
+    const res = await fetch("/.netlify/functions/convener-collabs", opts);
+    if (res.status === 401) { logout(); throw new Error("unauth"); }
+    return res.json();
+  }
+
+  function cvBadge(t) { t = t || "unknown"; return `<span class="badge badge-${t}">${t}</span>`; }
+
+  // ── Generators ──
+  async function cvFindPairings(btn) {
+    const orig = btn.textContent; btn.disabled = true; btn.textContent = "Scanning…";
+    try {
+      const data = await cvCompute({ mode: "pairings", limit: 12, compose: 6 });
+      if (data.drafts?.length) cvAddDrafts(data.drafts);
+      else cvNote("No new pairings surfaced — the network may still be filling in.");
+    } catch (e) { cvNote("Pairing scan failed."); }
+    finally { btn.disabled = false; btn.textContent = orig; }
+  }
+
+  async function cvBuildGroup(btn) {
+    const seed = document.getElementById("cvGroupSeed").value.trim();
+    const orig = btn.textContent; btn.disabled = true; btn.textContent = "Building…";
+    try {
+      const data = await cvCompute({ mode: "group", seedMemberId: seed || undefined });
+      if (data.draft) cvAddDrafts([data.draft]); else cvNote(data.note || "No group found.");
+    } catch (e) { cvNote("Group build failed."); }
+    finally { btn.disabled = false; btn.textContent = orig; }
+  }
+
+  async function cvInventEvent(btn) {
+    const hint = document.getElementById("cvEventHint").value.trim();
+    const orig = btn.textContent; btn.disabled = true; btn.textContent = "Inventing…";
+    try {
+      const data = await cvCompute({ mode: "invent-event", hint: hint || undefined });
+      if (data.draft) cvAddDrafts([data.draft]); else cvNote(data.note || "No event invented.");
+    } catch (e) { cvNote("Event invention failed."); }
+    finally { btn.disabled = false; btn.textContent = orig; }
+  }
+
+  // ── Draft store (client-side, until saved to queue) ──
+  let cvDraftSeq = 0;
+  const cvDraftStore = {};
+
+  function cvAddDrafts(drafts) {
+    for (const d of drafts) cvDraftStore["d" + (cvDraftSeq++)] = d;
+    renderDrafts();
+  }
+  function cvNote(msg) {
+    const p = document.createElement("p");
+    p.style.cssText = "color:#9ca3af;font-size:13px;margin:4px 0;";
+    p.textContent = msg;
+    document.getElementById("cvDrafts").prepend(p);
+  }
+  function cvDiscardDraft(key) { delete cvDraftStore[key]; renderDrafts(); }
+
+  function renderDrafts() {
+    const box = document.getElementById("cvDrafts");
+    const keys = Object.keys(cvDraftStore);
+    if (!keys.length) { box.innerHTML = ""; return; }
+    box.innerHTML = `<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Proposals (not yet saved)</div>` +
+      keys.map(k => cvDraftStore[k].type === "event" ? eventDraftCard(k, cvDraftStore[k]) : draftCard(k, cvDraftStore[k])).join("");
+  }
+
+  function draftPartyRows(parties) {
+    return (parties || []).map(p => `
+      <div style="padding:6px 0;border-top:1px solid #f3f4f6;">
+        <div style="font-size:13px;">${cvBadge(p.memberType)} <strong>${escapeHtml(p.memberName || p.memberId)}</strong>${p.role ? ` <span style="color:#6b7280;">· ${escapeHtml(p.role)}</span>` : ""}</div>
+        ${p.message ? `<div style="font-size:12px;color:#374151;margin-top:2px;">${escapeHtml(p.message)}</div>` : ""}
+      </div>`).join("");
+  }
+
+  function draftShell(key, type, inner) {
+    return `<div class="match-card" style="display:block;cursor:default;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px;background:#fff;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+        <span style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;">${type}</span>
+        <div style="display:flex;gap:6px;">
+          <button class="refresh-btn" style="font-size:12px;" onclick="cvSaveDraft('${key}', this)">Save to queue</button>
+          <button class="refresh-btn" style="font-size:12px;" onclick="cvDiscardDraft('${key}')">Discard</button>
+        </div>
       </div>
-      <button class="refresh-btn" onclick="logConvenerIntro('${escapeId(c.id)}', this)">Log intro</button>
+      ${inner}
     </div>`;
   }
 
-  async function logConvenerIntro(candidateId, btn) {
-    const anchor = document.getElementById("convenerAnchor").value.trim();
-    const objective = document.getElementById("convenerObjective").value.trim();
-    if (!anchor) {
-      alert("Set an Anchor member ID first — the member you're connecting this collaborator to (e.g. the event host). The intro is logged from the anchor to this collaborator.");
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = "Logging…";
-    const token = sessionStorage.getItem("admin_token");
+  function draftCard(key, d) {
+    const inner = `
+      ${d.title ? `<div style="font-weight:600;margin-top:4px;">${escapeHtml(d.title)}</div>` : ""}
+      ${d.adminSummary ? `<div style="font-size:12px;color:#6b7280;margin:6px 0;font-style:italic;">${escapeHtml(d.adminSummary)}</div>` : ""}
+      ${draftPartyRows(d.parties)}`;
+    return draftShell(key, d.type, inner);
+  }
+
+  function eventDraftCard(key, d) {
+    d.parties = d.parties || [];
+    const selected = new Set(d.parties.map(p => p.memberId));
+    const roles = (d.roleCandidates || []).map((rc, ri) => {
+      const cands = (rc.candidates || []).map((c, ci) => {
+        const picked = selected.has(c.memberId);
+        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:12px;">
+          <span>${cvBadge(c.memberType)} ${escapeHtml(c.memberName || c.memberId)}${c.neighborhood ? ` <span style="color:#9ca3af;">· ${escapeHtml(c.neighborhood)}</span>` : ""} <span style="color:#9ca3af;">(${Math.round((c.score || 0) * 100)})</span></span>
+          <button class="refresh-btn" style="font-size:11px;padding:2px 8px;" ${picked ? "disabled" : ""} onclick="cvAddRoleParty('${key}', ${ri}, ${ci})">${picked ? "added" : "add"}</button>
+        </div>`;
+      }).join("");
+      return `<div style="margin-top:6px;"><div style="font-size:12px;font-weight:600;color:#374151;">${escapeHtml(rc.role)}${rc.type ? ` <span style="color:#9ca3af;font-weight:400;">· ${escapeHtml(rc.type)}</span>` : ""}</div>${cands || `<div style="color:#9ca3af;font-size:12px;">no candidates yet</div>`}</div>`;
+    }).join("");
+    const lineup = d.parties.length
+      ? `<div style="margin-top:8px;font-size:12px;"><strong>Lineup:</strong> ${d.parties.map(p => escapeHtml(p.memberName || p.memberId) + ` (${escapeHtml(p.role || "")})`).join(", ")}</div>`
+      : `<div style="margin-top:8px;font-size:12px;color:#9ca3af;">Add members from the roles above to build the lineup.</div>`;
+    const inner = `
+      <div style="font-weight:600;margin-top:4px;">${escapeHtml(d.title || "")}</div>
+      ${d.description ? `<div style="font-size:12px;color:#6b7280;margin:4px 0;">${escapeHtml(d.description)}</div>` : ""}
+      ${roles}
+      ${lineup}`;
+    return draftShell(key, "event", inner);
+  }
+
+  function cvAddRoleParty(key, ri, ci) {
+    const d = cvDraftStore[key]; if (!d) return;
+    const rc = (d.roleCandidates || [])[ri]; if (!rc) return;
+    const c = (rc.candidates || [])[ci]; if (!c) return;
+    d.parties = d.parties || [];
+    if (d.parties.some(p => p.memberId === c.memberId)) return;
+    d.parties.push({ memberId: c.memberId, memberName: c.memberName, memberType: c.memberType, role: rc.role, message: null, score: c.score, partyStatus: "in" });
+    const rn = (d.rolesNeeded || []).find(r => r.role === rc.role); if (rn) rn.filled = true;
+    renderDrafts();
+  }
+
+  async function cvSaveDraft(key, btn) {
+    const d = cvDraftStore[key]; if (!d) return;
+    if (d.type === "event" && (!d.parties || !d.parties.length)) { alert("Add at least one party to the event first."); return; }
+    btn.disabled = true; btn.textContent = "Saving…";
     try {
-      const res = await fetch("/.netlify/functions/match-log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          memberId: anchor,
-          matchedMemberId: candidateId,
-          reason: `convener: ${objective}`.slice(0, 300),
-          channel: "web",
-        }),
+      const data = await cvCollab("POST", {
+        action: "save", source: "manual",
+        draft: {
+          type: d.type, title: d.title ?? null, description: d.description ?? null,
+          adminSummary: d.adminSummary ?? null, parties: d.parties || [],
+          rolesNeeded: d.rolesNeeded || [], seedMemberId: d.seedMemberId ?? null,
+        },
       });
-      const data = await res.json();
-      if (data.ok && data.id) {
-        // Logged — offer immediate outcome capture (you may already know it),
-        // and refresh the recent-intros list so it shows up there too.
-        btn.replaceWith(outcomeControls(data.id));
-        loadRecentIntros();
-      } else {
-        btn.textContent = "Failed";
-        btn.disabled = false;
-      }
-    } catch {
-      btn.textContent = "Failed";
-      btn.disabled = false;
-    }
+      if (data.ok) { delete cvDraftStore[key]; renderDrafts(); loadCollabQueue(); }
+      else { btn.disabled = false; btn.textContent = "Save to queue"; alert(data.error || "save failed"); }
+    } catch (e) { btn.disabled = false; btn.textContent = "Save to queue"; }
   }
 
-  // A pair of 👍/👎 buttons that record a convener outcome on a matchLog.
-  function outcomeControls(matchLogId) {
-    const wrap = document.createElement("span");
-    wrap.style.cssText = "display:inline-flex;gap:6px;";
-    wrap.innerHTML = `
-      <button class="refresh-btn" style="font-size:12px;padding:4px 8px;" title="Mark this intro as worked">👍 Worked</button>
-      <button class="refresh-btn" style="font-size:12px;padding:4px 8px;" title="Mark this intro as didn't pan out">👎 Didn't</button>`;
-    const [okBtn, noBtn] = wrap.querySelectorAll("button");
-    okBtn.onclick = () => recordConvenerOutcome(matchLogId, "worked", wrap);
-    noBtn.onclick = () => recordConvenerOutcome(matchLogId, "didnt", wrap);
-    return wrap;
-  }
+  // ── Review queue ──
+  const cvQueueStore = {};
+  const cvReplCandidates = {};
 
-  async function recordConvenerOutcome(matchLogId, verdict, container) {
-    container.innerHTML = `<span style="font-size:12px;color:#9ca3af;">Saving…</span>`;
-    const token = sessionStorage.getItem("admin_token");
+  async function loadCollabQueue() {
+    const box = document.getElementById("cvQueue");
     try {
-      const res = await fetch("/.netlify/functions/match-log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ matchLogId, verdict }),
-      });
-      const data = await res.json();
-      container.innerHTML = data.ok
-        ? `<span style="font-size:12px;color:${verdict === "worked" ? "#059669" : "#6b7280"};">${verdict === "worked" ? "👍 marked worked" : "👎 marked"}</span>`
-        : `<span style="font-size:12px;color:#dc2626;">failed</span>`;
-      if (data.ok) loadRecentIntros();
-    } catch {
-      container.innerHTML = `<span style="font-size:12px;color:#dc2626;">failed</span>`;
+      const data = await cvCollab("GET");
+      for (const k in cvQueueStore) delete cvQueueStore[k];
+      for (const c of (data.collabs || [])) cvQueueStore[c.id] = c;
+      renderQueue();
+    } catch (e) {
+      box.innerHTML = `<p style="color:#dc2626;font-size:13px;">Failed to load queue.</p>`;
     }
   }
 
-  // List recent intros; let the convener label the ones not yet completed.
-  async function loadRecentIntros() {
-    const box = document.getElementById("convenerIntros");
-    const token = sessionStorage.getItem("admin_token");
-    try {
-      const res = await fetch("/.netlify/functions/match-log", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.status === 401) { logout(); return; }
-      const logs = await res.json();
-      if (!Array.isArray(logs) || !logs.length) {
-        box.innerHTML = `<p style="color:#9ca3af;font-size:13px;">No intros logged yet.</p>`;
-        return;
-      }
-      const sorted = logs
-        .sort((a, b) => (introMs(b) - introMs(a)))
-        .slice(0, 15);
-      box.innerHTML = sorted.map(introRow).join("");
-      // Wire outcome buttons for not-yet-completed rows.
-      sorted.forEach(l => {
-        if (l.status === "completed") return;
-        const slot = document.getElementById(`intro_oc_${l.id}`);
-        if (slot) slot.replaceWith(outcomeControls(l.id));
-      });
-    } catch {
-      box.innerHTML = `<p style="color:#dc2626;font-size:13px;">Failed to load intros.</p>`;
-    }
+  function renderQueue() {
+    const box = document.getElementById("cvQueue");
+    const all = Object.values(cvQueueStore).filter(c => c.status !== "dismissed");
+    if (!all.length) { box.innerHTML = `<p style="color:#9ca3af;font-size:13px;">Nothing in the queue yet — generate a proposal above.</p>`; return; }
+    const flagged = all.filter(c => c.status === "flagged");
+    const approved = all.filter(c => c.status === "approved");
+    box.innerHTML =
+      flagged.map(collabCard).join("") +
+      (approved.length ? `<div style="font-size:12px;font-weight:600;color:#374151;margin:12px 0 4px;">Approved — not sent</div>` + approved.map(collabCard).join("") : "");
   }
 
-  function introMs(l) {
-    return l.introducedAt?._seconds ? l.introducedAt._seconds * 1000
-      : (typeof l.introducedAt === "string" ? Date.parse(l.introducedAt) : 0);
-  }
-
-  function introRow(l) {
-    const completed = l.status === "completed";
-    const sentiment = l.outcome?.sentiment;
-    const badge = completed
-      ? `<span style="font-size:11px;color:${sentiment === "positive" ? "#059669" : "#6b7280"};">${sentiment === "positive" ? "👍 worked" : "👎 didn't"}</span>`
-      : `<span id="intro_oc_${escapeId(l.id)}"></span>`;
-    const who = `${escapeHtml(l.memberName || l.memberId || "?")} → ${escapeHtml(l.matchedMemberName || l.matchedMemberId || "?")}`;
-    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:13px;">
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:500;">${who}</div>
-        ${l.reason ? `<div style="color:#9ca3af;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(l.reason)}</div>` : ""}
+  function collabCard(c) {
+    const approved = c.status === "approved";
+    const head = c.title ? `<strong>${escapeHtml(c.title)}</strong>` : `<strong>${c.type === "intro" ? "Intro" : "Collab"}</strong>`;
+    const parties = (c.parties || []).map((p, pi) => {
+      const out = p.partyStatus === "out";
+      const ctrls = approved ? "" : `
+        <button class="refresh-btn" style="font-size:11px;padding:2px 8px;" onclick="cvReplaceParty('${c.id}', ${pi}, this)">replace</button>
+        <button class="refresh-btn" style="font-size:11px;padding:2px 8px;" onclick="cvTogglePartyOut('${c.id}', ${pi})">${out ? "include" : "remove"}</button>`;
+      const copy = (approved && p.message) ? `<button class="refresh-btn" style="font-size:11px;padding:2px 8px;" onclick="cvCopyParty('${c.id}', ${pi})">copy</button>` : "";
+      return `<div style="padding:6px 0;border-top:1px solid #f3f4f6;${out ? "opacity:.45;" : ""}">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+          <span style="font-size:13px;">${cvBadge(p.memberType)} <strong>${escapeHtml(p.memberName || p.memberId)}</strong>${p.role ? ` <span style="color:#6b7280;">· ${escapeHtml(p.role)}</span>` : ""}</span>
+          <span style="display:flex;gap:6px;flex-shrink:0;">${copy}${ctrls}</span>
+        </div>
+        ${p.message ? `<div style="font-size:12px;color:#374151;margin-top:2px;">${escapeHtml(p.message)}</div>` : ""}
+        <div id="cv_repl_${c.id}_${pi}"></div>
+      </div>`;
+    }).join("");
+    const actions = approved
+      ? `<span style="font-size:11px;color:#059669;">✓ approved — not sent</span>`
+      : `<div style="display:flex;gap:6px;">
+          <button class="refresh-btn" style="font-size:12px;" onclick="cvApprove('${c.id}', this)">Approve</button>
+          <button class="refresh-btn" style="font-size:12px;" onclick="cvDismiss('${c.id}', this)">Dismiss</button>
+        </div>`;
+    const src = c.source === "auto" ? ` <span style="font-size:10px;background:#eef2ff;color:#3730a3;padding:1px 6px;border-radius:6px;">auto-flagged</span>` : "";
+    return `<div class="match-card" style="display:block;cursor:default;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px;background:#fff;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+        <span style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;">${c.type}${src}</span>
+        ${actions}
       </div>
-      <div style="flex-shrink:0;">${badge}</div>
+      <div style="margin-top:4px;">${head}</div>
+      ${c.description ? `<div style="font-size:12px;color:#6b7280;margin:4px 0;">${escapeHtml(c.description)}</div>` : ""}
+      ${c.adminSummary ? `<div style="font-size:12px;color:#6b7280;margin:4px 0;font-style:italic;">${escapeHtml(c.adminSummary)}</div>` : ""}
+      ${parties}
     </div>`;
+  }
+
+  function cvTogglePartyOut(id, pi) {
+    const c = cvQueueStore[id]; if (!c) return;
+    const p = c.parties[pi]; if (!p) return;
+    p.partyStatus = p.partyStatus === "out" ? "in" : "out";
+    renderQueue();
+  }
+
+  function cvCopyParty(id, pi) {
+    const c = cvQueueStore[id]; if (!c) return;
+    const msg = c.parties?.[pi]?.message; if (!msg) return;
+    navigator.clipboard?.writeText(msg);
+  }
+
+  // Replace flow: fetch next-best candidates for this party's role, show a
+  // picker. Picking swaps the member; its message is regenerated when sent.
+  async function cvReplaceParty(id, pi, btn) {
+    const c = cvQueueStore[id]; if (!c) return;
+    const p = c.parties[pi];
+    const slot = document.getElementById(`cv_repl_${id}_${pi}`);
+    if (!slot) return;
+    slot.innerHTML = `<div style="font-size:12px;color:#9ca3af;padding:4px 0;">Finding alternatives…</div>`;
+    const needsText = [c.title, c.description, p.role && `role ${p.role}`].filter(Boolean).join(". ") || p.role || "collaborator";
+    const excludeIds = (c.parties || []).map(x => x.memberId);
+    try {
+      const data = await cvCompute({ mode: "next-best", needsText, roleType: p.memberType || undefined, excludeIds });
+      const cands = data.candidates || [];
+      cvReplCandidates[`${id}_${pi}`] = cands;
+      if (!cands.length) { slot.innerHTML = `<div style="font-size:12px;color:#9ca3af;padding:4px 0;">No alternatives found.</div>`; return; }
+      slot.innerHTML = `<div style="margin:4px 0 2px;padding:6px;border:1px dashed #d1d5db;border-radius:8px;">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Replace with:</div>` +
+        cands.map((cand, idx) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;font-size:12px;">
+          <span>${cvBadge(cand.memberType)} ${escapeHtml(cand.memberName || cand.memberId)} <span style="color:#9ca3af;">(${Math.round((cand.score || 0) * 100)})</span></span>
+          <button class="refresh-btn" style="font-size:11px;padding:2px 8px;" onclick="cvPickReplacement('${id}', ${pi}, ${idx})">use</button>
+        </div>`).join("") +
+        `<button class="refresh-btn" style="font-size:11px;padding:2px 8px;margin-top:4px;" onclick="document.getElementById('cv_repl_${id}_${pi}').innerHTML=''">cancel</button></div>`;
+    } catch (e) {
+      slot.innerHTML = `<div style="font-size:12px;color:#dc2626;padding:4px 0;">Lookup failed.</div>`;
+    }
+  }
+
+  function cvPickReplacement(id, pi, idx) {
+    const c = cvQueueStore[id]; if (!c) return;
+    const cand = (cvReplCandidates[`${id}_${pi}`] || [])[idx]; if (!cand) return;
+    const role = c.parties[pi]?.role ?? null;
+    c.parties[pi] = {
+      memberId: cand.memberId, memberName: cand.memberName, memberType: cand.memberType,
+      role, message: null, score: cand.score, partyStatus: "in",
+    };
+    renderQueue();
+  }
+
+  async function cvApprove(id, btn) {
+    const c = cvQueueStore[id]; if (!c) return;
+    const inCount = (c.parties || []).filter(p => p.partyStatus !== "out").length;
+    if (inCount < 2) { alert("Need at least 2 parties included to approve."); return; }
+    btn.disabled = true; btn.textContent = "Approving…";
+    try {
+      const data = await cvCollab("POST", {
+        action: "approve", id,
+        parties: c.parties, title: c.title, description: c.description, adminSummary: c.adminSummary,
+      });
+      if (data.ok) loadCollabQueue();
+      else { btn.disabled = false; btn.textContent = "Approve"; alert(data.error || "approve failed"); }
+    } catch (e) { btn.disabled = false; btn.textContent = "Approve"; }
+  }
+
+  async function cvDismiss(id, btn) {
+    btn.disabled = true; btn.textContent = "…";
+    try { await cvCollab("POST", { action: "dismiss", id }); loadCollabQueue(); }
+    catch (e) { btn.disabled = false; btn.textContent = "Dismiss"; }
   }
 
   // ── Boot ──
