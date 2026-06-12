@@ -69,18 +69,27 @@ function buildProfileText(profile) {
   return parts.join(". ");
 }
 
+// Tolerate dirty data: some legacy profiles stored array fields as a bare
+// string (or other). Coerce so a single malformed member can't crash a
+// pool-wide scan (e.g. the convener's findPairings).
+function asArray(v) {
+  if (Array.isArray(v)) return v.filter(x => x != null);
+  if (typeof v === "string" && v.trim()) return [v];
+  return [];
+}
+
 // Text describing what a member can OFFER the community / a collaborator.
 // Falls back to existing signals so members onboarded before needs/offers
 // existed still get a meaningful offers vector.
 export function buildOffersText(profile = {}) {
   const parts = [];
-  if (profile.offers?.length)           parts.push(profile.offers.join(", "));
-  if (profile.services?.length)         parts.push(`services: ${profile.services.join(", ")}`);
-  if (profile.products?.length)         parts.push(`products: ${profile.products.join(", ")}`);
-  if (profile.shareTypes?.length)       parts.push(profile.shareTypes.join(", "));
-  if (profile.discipline)               parts.push(profile.discipline);          // artists offer their craft
-  if (profile.partnershipTypes?.length) parts.push(profile.partnershipTypes.join(", ")); // influencers
-  if (profile.businessDescription)      parts.push(profile.businessDescription);
+  if (asArray(profile.offers).length)           parts.push(asArray(profile.offers).join(", "));
+  if (asArray(profile.services).length)         parts.push(`services: ${asArray(profile.services).join(", ")}`);
+  if (asArray(profile.products).length)         parts.push(`products: ${asArray(profile.products).join(", ")}`);
+  if (asArray(profile.shareTypes).length)       parts.push(asArray(profile.shareTypes).join(", "));
+  if (profile.discipline)                       parts.push(profile.discipline);          // artists offer their craft
+  if (asArray(profile.partnershipTypes).length) parts.push(asArray(profile.partnershipTypes).join(", ")); // influencers
+  if (profile.businessDescription)              parts.push(profile.businessDescription);
   if (Array.isArray(profile.pricePerProduct) && profile.pricePerProduct.length) {
     const items = profile.pricePerProduct.filter(p => p?.name).map(p => p.name).join(", ");
     if (items) parts.push(items);
@@ -91,13 +100,13 @@ export function buildOffersText(profile = {}) {
 // Text describing what a member NEEDS from the community.
 export function buildNeedsText(profile = {}) {
   const parts = [];
-  if (profile.needs?.length)            parts.push(profile.needs.join(", "));
-  if (profile.goals?.length)            parts.push(profile.goals.join(", "));
-  if (profile.painPoints?.length)       parts.push(profile.painPoints.join(", "));
-  if (profile.needsMost?.length)        parts.push(profile.needsMost.join(", "));
-  if (profile.connectWith?.length)      parts.push(`wants to connect with: ${profile.connectWith.join(", ")}`);
-  if (profile.venueTypes?.length)       parts.push(`looking for venues: ${profile.venueTypes.join(", ")}`); // artists need venues
-  if (profile.interests?.length)        parts.push(`interested in: ${profile.interests.join(", ")}`);        // shoppers seek these
+  if (asArray(profile.needs).length)            parts.push(asArray(profile.needs).join(", "));
+  if (asArray(profile.goals).length)            parts.push(asArray(profile.goals).join(", "));
+  if (asArray(profile.painPoints).length)       parts.push(asArray(profile.painPoints).join(", "));
+  if (asArray(profile.needsMost).length)        parts.push(asArray(profile.needsMost).join(", "));
+  if (asArray(profile.connectWith).length)      parts.push(`wants to connect with: ${asArray(profile.connectWith).join(", ")}`);
+  if (asArray(profile.venueTypes).length)       parts.push(`looking for venues: ${asArray(profile.venueTypes).join(", ")}`); // artists need venues
+  if (asArray(profile.interests).length)        parts.push(`interested in: ${asArray(profile.interests).join(", ")}`);        // shoppers seek these
   return parts.join(". ");
 }
 

@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { getDb } from "./db.js";
-import { queryComplementary, buildNeedsText, buildOffersText } from "./vectorSearch.js";
+import { queryComplementary, buildNeedsText, buildOffersText, findSimilarMembers } from "./vectorSearch.js";
 import { pairKey } from "./collabs.js";
 import { topAffinityLineup } from "./matchFormats.js";
 
@@ -140,32 +140,57 @@ export async function findPairings({ limit = 12, excludePairKeys = [], pool = nu
   const idx = poolIndex(pool);
   const seen = new Set(excludePairKeys);
   const pairs = [];
+  const target = limit * 3; // collect a few extra, then rank — bounds Pinecone calls
+
+  const addPair = (a, b, score, fit, basis) => {
+    const key = pairKey(a.id, b.id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const ta = a.profile.memberType;
+    const tb = b.profile.memberType;
+    const crossType = ta && tb && ta !== tb;
+    pairs.push({
+      members: [a.id, b.id],
+      memberTypes: [ta || null, tb || null],
+      rawScore: Number(score?.toFixed?.(3) ?? score ?? 0),
+      score: rankPairScore(score, crossType),
+      crossType: !!crossType,
+      basis,
+      fit,
+    });
+    return true;
+  };
 
   for (const m of pool) {
+    if (pairs.length >= target) break;
+    let matched = false;
+
+    // Preferred: complementary fit (their offers ↔ this member's needs).
     const needsText = buildNeedsText(m.profile);
     const offersText = buildOffersText(m.profile);
-    if (!needsText.trim() && !offersText.trim()) continue;
+    if (needsText.trim() || offersText.trim()) {
+      const ranked = await queryComplementary({ needsText, offersText, excludeIds: [m.id], limit: 5 });
+      for (const r of ranked) {
+        const other = idx.get(r.id);
+        if (!other) continue;
+        if (addPair(m, other, r.score, (r.directions || []).map(d => DIRECTION_LABEL[d] || d), "complementary")) {
+          matched = true;
+          break;
+        }
+      }
+    }
 
-    const ranked = await queryComplementary({ needsText, offersText, excludeIds: [m.id], limit: 5 });
-    for (const r of ranked) {
-      const other = idx.get(r.id);
-      if (!other) continue; // counterpart not in the loaded pool
-      const key = pairKey(m.id, r.id);
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const ta = m.profile.memberType;
-      const tb = other.profile.memberType;
-      const crossType = ta && tb && ta !== tb;
-      pairs.push({
-        members: [m.id, r.id],
-        memberTypes: [ta || null, tb || null],
-        rawScore: Number(r.score?.toFixed?.(3) ?? r.score ?? 0),
-        score: rankPairScore(r.score, crossType),
-        crossType: !!crossType,
-        fit: (r.directions || []).map(d => DIRECTION_LABEL[d] || d),
-      });
-      break; // one best counterpart per member keeps the queue broad
+    // Fallback: closest member by overall profile similarity. Keeps the
+    // pairwise tab useful before the network has rich needs/offers data.
+    if (!matched) {
+      try {
+        const similar = await findSimilarMembers(m.id, 5);
+        for (const s of similar) {
+          const other = idx.get(s.id);
+          if (!other) continue;
+          if (addPair(m, other, s.score, ["similar profile"], "semantic")) break;
+        }
+      } catch { /* member not in the index yet — skip */ }
     }
   }
 
