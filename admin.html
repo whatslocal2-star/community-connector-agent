@@ -397,7 +397,7 @@
     .cv-tab:hover { color: #111827; }
     .cv-tab.active { color: #111827; font-weight: 600; border-bottom-color: #059669; }
     /* Hover a party to see who they are + why (offers/needs) */
-    .cv-party { position: relative; cursor: help; border-bottom: 1px dotted #94a3b8; }
+    .cv-party { position: relative; cursor: pointer; border-bottom: 1px dotted #94a3b8; }
     .cv-party .cv-pop {
       display: none; position: absolute; z-index: 60; left: 0; top: 100%; margin-top: 5px;
       width: 290px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
@@ -744,6 +744,12 @@
   function openModal(id) {
     const m = allMembers.find(x => x.id === id);
     if (!m) return;
+    openModalWithMember(m);
+  }
+
+  // Open the profile modal for any member object (real or sim-fetched).
+  function openModalWithMember(m) {
+    const id = m.id;
     const p = m.profile || {};
     const type = getMemberType(m);
     currentModalId = id;
@@ -1071,12 +1077,26 @@
     if ((d.offers || []).length) rows.push(`<div style="margin-top:6px;"><span style="color:#166534;font-weight:600;">Offers:</span> ${escapeHtml(d.offers.join(", "))}</div>`);
     if ((d.needs || []).length) rows.push(`<div style="margin-top:3px;"><span style="color:#92400e;font-weight:600;">Needs:</span> ${escapeHtml(d.needs.join(", "))}</div>`);
     if (!(d.offers || []).length && !(d.needs || []).length && !d.description) rows.push(`<div style="color:#9ca3af;margin-top:4px;">No offers/needs captured yet — match is by profile similarity.</div>`);
+    rows.push(`<div style="margin-top:7px;padding-top:6px;border-top:1px solid #f3f4f6;color:#059669;font-weight:600;">Click for full profile →</div>`);
     return `<span class="cv-pop">${rows.join("")}</span>`;
   }
 
-  // A party name wrapped so hovering reveals the detail popover.
+  // A party name: hover reveals the detail popover, click opens the full profile.
   function cvPartyName(p) {
-    return `<span class="cv-party">${cvBadge(p.memberType)} <strong>${escapeHtml(p.memberName || p.memberId)}</strong>${cvPartyPop(p)}</span>`;
+    return `<span class="cv-party" onclick="cvOpenParty('${escapeId(p.memberId)}')">${cvBadge(p.memberType)} <strong>${escapeHtml(p.memberName || p.memberId)}</strong>${cvPartyPop(p)}</span>`;
+  }
+
+  // Open the full-profile modal for a party (real or sim). Reuses the member
+  // modal when the member is already loaded; otherwise fetches the full doc.
+  async function cvOpenParty(id) {
+    if (allMembers.find(x => x.id === id)) { openModal(id); return; }
+    try {
+      const res = await fetch(`/.netlify/functions/member-get?id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${cvToken()}` } });
+      if (res.status === 401) { logout(); return; }
+      const d = await res.json();
+      if (d && d.profile) openModalWithMember({ id: d.id, profile: d.profile, source: d.source, status: d.status });
+      else alert("Profile not found.");
+    } catch (e) { alert("Could not load profile."); }
   }
 
   // "Why this match" — a real offers↔needs fit vs. just profile similarity.
