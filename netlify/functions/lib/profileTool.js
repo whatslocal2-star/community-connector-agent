@@ -11,9 +11,14 @@ export function parseCompletion(completion) {
     const searchQuery = typeof parsed.searchQuery === "string" && parsed.searchQuery.trim()
       ? parsed.searchQuery.trim()
       : null;
-    return { reply, profileUpdate, searchQuery };
+    // Connector mode only — the member's response to one or more pending collab
+    // options. Keep only well-formed entries with a collabId + decision.
+    const collabResponses = Array.isArray(parsed.collabResponses)
+      ? parsed.collabResponses.filter(r => r && typeof r.collabId === "string" && r.collabId && typeof r.decision === "string" && r.decision)
+      : null;
+    return { reply, profileUpdate, searchQuery, collabResponses: collabResponses?.length ? collabResponses : null };
   } catch {
     // model didn't return valid JSON — treat the whole thing as a reply
-    return { reply: raw, profileUpdate: null, searchQuery: null };
+    return { reply: raw, profileUpdate: null, searchQuery: null, collabResponses: null };
   }
 }

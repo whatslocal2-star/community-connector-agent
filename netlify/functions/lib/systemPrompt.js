@@ -204,9 +204,35 @@ function toSms(prompt) {
   return `${prompt}\n\nSMS MODE: This conversation is over SMS. Keep every reply SHORT — 1-3 sentences max. Ask one thing at a time. No long paragraphs.`;
 }
 
+// Pending collab invitations the admin has approved for this member. Surfaced
+// to the SAME connector persona (not a separate flow) so relaying an invite and
+// reading the member's answer feels like one continuous friend.
+function pendingBlock(options) {
+  const lines = options.map((o, i) => {
+    const others = o.others.map(x => x.name || x.memberType).filter(Boolean).join(", ");
+    const what = o.title ? `"${o.title}" (${o.type})` : "an intro";
+    return `Option ${i + 1} [collabId: ${o.collabId}]: ${what}${o.yourRole ? `, your role: ${o.yourRole}` : ""}${others ? `, with ${others}` : ""}. Why it's a fit for them: ${o.yourMessage || "(no note)"}`;
+  }).join("\n");
+  return `
+
+PENDING COLLAB INVITATIONS — the admin has lined up ${options.length} collaboration option(s) for this member that you haven't heard back on:
+${lines}
+
+HOW TO HANDLE THESE (stay fully in character — you're the same friend who onboarded them):
+- If you haven't already raised them in this conversation, bring them up warmly and naturally as numbered options, in your own voice — like a friend relaying exciting opportunities. One-line hook each; invite them to pick.
+- Answer questions about an option using ONLY the details above. NEVER invent specifics, names, times, or terms.
+- When the member signals how they feel about an option (wants in, not interested, maybe / needs more info), record it via "collabResponses".
+- Don't nag — if they're focused on something else, hold these for the right moment.
+
+ADDITIONAL OUTPUT FIELD, only when the member responds to an option this turn:
+- "collabResponses": an array of { "collabId": "<the exact collabId shown above>", "decision": "interested" | "declined" | "maybe", "note": "<their words / any useful context, optional>" }. Include only options they actually responded to. Omit the field entirely otherwise.`;
+}
+
 // Pick the right system prompt for this turn based on the member's current
-// profile (onboarding vs connector) and channel (web vs sms).
-export function buildSystemPrompt(profile, { sms = false } = {}) {
-  const base = isOnboarded(profile) ? CONNECTOR_PROMPT : ONBOARDING_PROMPT;
+// profile (onboarding vs connector) and channel (web vs sms). Pending collab
+// options are appended for onboarded members so the connector can relay them.
+export function buildSystemPrompt(profile, { sms = false, pendingCollabs = [] } = {}) {
+  let base = isOnboarded(profile) ? CONNECTOR_PROMPT : ONBOARDING_PROMPT;
+  if (isOnboarded(profile) && pendingCollabs?.length) base += pendingBlock(pendingCollabs);
   return sms ? toSms(base) : base;
 }

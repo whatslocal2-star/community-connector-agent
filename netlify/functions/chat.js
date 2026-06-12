@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { buildSystemPrompt, isOnboarded } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
 import { saveMember, loadMember } from "./lib/db.js";
+import { loadCollabsByIds, pendingOptionsFor, recordCollabResponse } from "./lib/collabs.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
@@ -100,15 +101,36 @@ export const handler = async (event) => {
     const existing = await loadMember(sessionId);
     const connectorMode = isOnboarded(existing?.profile);
 
+    // Pending collab options the admin approved for this member — surfaced to
+    // the SAME connector persona so relaying an invite feels seamless.
+    let pendingOptions = [];
+    if (connectorMode && existing?.pendingCollabs?.length) {
+      try {
+        const collabs = await loadCollabsByIds(existing.pendingCollabs);
+        pendingOptions = pendingOptionsFor(collabs, sessionId);
+      } catch (err) { console.error("load pending collabs error:", err); }
+    }
+
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 512,
-      messages: [{ role: "system", content: buildSystemPrompt(existing?.profile, { sms: false }) }, ...cappedMessages],
+      messages: [{ role: "system", content: buildSystemPrompt(existing?.profile, { sms: false, pendingCollabs: pendingOptions }) }, ...cappedMessages],
       response_format: { type: "json_object" },
     });
 
-    const { reply, profileUpdate, searchQuery } = parseCompletion(completion);
+    const { reply, profileUpdate, searchQuery, collabResponses } = parseCompletion(completion);
     let finalReply = reply;
+
+    // Record any collab option the member responded to this turn, and clear it
+    // from their pending list. Independent of the profile save pipeline.
+    if (collabResponses?.length) {
+      for (const r of collabResponses) {
+        try {
+          await recordCollabResponse(r.collabId, sessionId, { decision: r.decision, note: r.note ?? null });
+        } catch (err) { console.error("recordCollabResponse error:", err); }
+      }
+      trackEvent(sessionId, "collab_response", { channel: "web", count: collabResponses.length });
+    }
 
     {
       try {

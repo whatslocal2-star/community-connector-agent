@@ -33,6 +33,8 @@ function sanitizeParties(parties = []) {
     message: p.message ?? null,
     score: typeof p.score === "number" ? p.score : null,
     partyStatus: p.partyStatus || "proposed",
+    invitedAt: p.invitedAt ?? null,
+    response: p.response ?? null, // { decision, note, respondedAt } once they reply
   }));
 }
 
@@ -114,8 +116,25 @@ async function writeLearningEdges(collab, parties) {
   return ids;
 }
 
+// Attach a collab to each in-party's member doc so the connector agent can
+// surface it as a pending option in the member's existing chat thread.
+async function attachPendingToMembers(collabId, memberIds) {
+  if (!memberIds.length) return;
+  const db = getDb();
+  const batch = db.batch();
+  for (const mid of memberIds) {
+    batch.set(
+      db.collection("members").doc(mid),
+      { pendingCollabs: FieldValue.arrayUnion(collabId) },
+      { merge: true },
+    );
+  }
+  await batch.commit();
+}
+
 // Freeze the reviewed proposal: persist the admin's final party set + messages,
-// mark approved, and seed the learning loop. Does NOT send anything (Phase 2).
+// mark approved, seed the learning loop, and deliver the option in-app by
+// flagging it pending on each included member. Nothing is sent over SMS yet.
 export async function approveCollab(id, { parties, title, description, adminSummary } = {}) {
   const db = getDb();
   const ref = db.collection("collabs").doc(id);
@@ -123,6 +142,16 @@ export async function approveCollab(id, { parties, title, description, adminSumm
   if (!existing) return null;
 
   const finalParties = sanitizeParties(parties ?? existing.parties);
+
+  // Stamp the included parties as invited; collect them for in-app delivery.
+  const nowIso = new Date().toISOString();
+  const inMemberIds = [];
+  for (const p of finalParties) {
+    if (p.partyStatus === "out") continue;
+    p.invitedAt = p.invitedAt ?? nowIso;
+    inMemberIds.push(p.memberId);
+  }
+
   const merged = {
     ...existing,
     title: title ?? existing.title,
@@ -141,7 +170,60 @@ export async function approveCollab(id, { parties, title, description, adminSumm
     ...(adminSummary != null ? { adminSummary } : {}),
     matchLogIds,
   });
-  return { id, status: "approved", matchLogIds };
+
+  await attachPendingToMembers(id, inMemberIds);
+  return { id, status: "approved", matchLogIds, invited: inMemberIds.length };
+}
+
+// Hydrate a member's pending collabs (by id) for the connector prompt.
+export async function loadCollabsByIds(ids = []) {
+  if (!ids.length) return [];
+  const db = getDb();
+  const refs = ids.map(id => db.collection("collabs").doc(id));
+  const snaps = await db.getAll(...refs);
+  return snaps.filter(s => s.exists).map(s => ({ id: s.id, ...s.data() }));
+}
+
+// The collab options this member still owes a response on — what the connector
+// agent presents as numbered options. Skips ones they've answered or are out of.
+export function pendingOptionsFor(collabs, memberId) {
+  const opts = [];
+  for (const c of collabs || []) {
+    if (c.status !== "approved") continue;
+    const me = (c.parties || []).find(p => p.memberId === memberId);
+    if (!me || me.partyStatus === "out" || me.response) continue;
+    const others = (c.parties || [])
+      .filter(p => p.memberId !== memberId && p.partyStatus !== "out")
+      .map(p => ({ name: p.memberName, memberType: p.memberType, role: p.role }));
+    opts.push({
+      collabId: c.id,
+      type: c.type,
+      title: c.title || null,
+      yourRole: me.role || null,
+      yourMessage: me.message || null,
+      others,
+    });
+  }
+  return opts;
+}
+
+// Record a member's in-app response to a collab option and clear it from their
+// pending list. Each party-pair stays a labeled example for the learning loop.
+export async function recordCollabResponse(collabId, memberId, { decision, note = null } = {}) {
+  const db = getDb();
+  const collab = await loadCollab(collabId);
+  if (!collab) return null;
+  const parties = (collab.parties || []).map(p =>
+    p.memberId === memberId
+      ? { ...p, response: { decision, note, respondedAt: new Date().toISOString() } }
+      : p,
+  );
+  await db.collection("collabs").doc(collabId).update({ parties });
+  await db.collection("members").doc(memberId).set(
+    { pendingCollabs: FieldValue.arrayRemove(collabId) },
+    { merge: true },
+  );
+  return { collabId, memberId, decision };
 }
 
 export async function dismissCollab(id) {

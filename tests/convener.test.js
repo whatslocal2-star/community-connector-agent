@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pairKey, collabPairKeys } from "../netlify/functions/lib/collabs.js";
+import { pairKey, collabPairKeys, pendingOptionsFor } from "../netlify/functions/lib/collabs.js";
 import { rankPairScore, reconcileMessages } from "../netlify/functions/lib/convener.js";
 
 // ---------------------------------------------------------------------------
@@ -91,4 +91,54 @@ test("reconcileMessages: falls back to fallback summary when model omits it", ()
   const contexts = [{ memberId: "a" }];
   const out = reconcileMessages(contexts, { parties: [{ memberId: "a", message: "x" }] }, fallback);
   assert.equal(out.adminSummary, "FB summary");
+});
+
+// ---------------------------------------------------------------------------
+// pendingOptionsFor — what the connector agent surfaces to a given member
+// ---------------------------------------------------------------------------
+const approvedCollab = (overrides = {}) => ({
+  id: "c1",
+  type: "group",
+  title: "Night Market",
+  status: "approved",
+  parties: [
+    { memberId: "a", memberName: "Ana", memberType: "vendor", role: "vendor / food", message: "you bring the food", partyStatus: "in", response: null },
+    { memberId: "b", memberName: "Bo", memberType: "artist", role: "artist", message: "you bring the art", partyStatus: "in", response: null },
+  ],
+  ...overrides,
+});
+
+test("pendingOptionsFor: surfaces an option to an included, un-responded member", () => {
+  const opts = pendingOptionsFor([approvedCollab()], "a");
+  assert.equal(opts.length, 1);
+  assert.equal(opts[0].collabId, "c1");
+  assert.equal(opts[0].yourMessage, "you bring the food");
+  assert.deepEqual(opts[0].others.map(o => o.name), ["Bo"]);
+});
+
+test("pendingOptionsFor: skips members who already responded", () => {
+  const c = approvedCollab();
+  c.parties[0].response = { decision: "interested" };
+  assert.deepEqual(pendingOptionsFor([c], "a"), []);
+});
+
+test("pendingOptionsFor: skips members marked out", () => {
+  const c = approvedCollab();
+  c.parties[0].partyStatus = "out";
+  assert.deepEqual(pendingOptionsFor([c], "a"), []);
+});
+
+test("pendingOptionsFor: ignores non-approved collabs", () => {
+  assert.deepEqual(pendingOptionsFor([approvedCollab({ status: "flagged" })], "a"), []);
+});
+
+test("pendingOptionsFor: a member not in the collab gets nothing", () => {
+  assert.deepEqual(pendingOptionsFor([approvedCollab()], "zzz"), []);
+});
+
+test("pendingOptionsFor: excludes out-parties from the others list", () => {
+  const c = approvedCollab();
+  c.parties.push({ memberId: "d", memberName: "Dee", memberType: "organizer", partyStatus: "out", response: null });
+  const opts = pendingOptionsFor([c], "a");
+  assert.deepEqual(opts[0].others.map(o => o.name), ["Bo"]);
 });
