@@ -1,5 +1,6 @@
 import { proposePairings, buildGroup, nextBestForRole, inventEvent } from "./lib/convener.js";
 import { listCollabs, collabPairKeys } from "./lib/collabs.js";
+import { loadFormats, loadFormat, parseLineup } from "./lib/matchFormats.js";
 import { isAdminAuthorized } from "./lib/adminAuth.js";
 
 const corsHeaders = {
@@ -54,6 +55,23 @@ export const handler = async (event) => {
     if (mode === "invent-event") {
       const draft = await inventEvent({ hint: body.hint || null });
       if (!draft) return json(200, { mode, draft: null, note: "Couldn't invent an event from the current network yet." });
+      return json(200, { mode, draft });
+    }
+
+    if (mode === "formats") {
+      const formats = await loadFormats({ limit: 25 });
+      return json(200, { mode, count: formats.length, formats });
+    }
+
+    if (mode === "from-format") {
+      if (!body.signature) return json(400, { error: "signature required" });
+      const fmt = await loadFormat(body.signature);
+      const lineup = fmt?.typeLineup?.length ? fmt.typeLineup : parseLineup(body.signature);
+      if (!lineup.length) return json(404, { error: "format not found" });
+      const draft = await buildGroup({ lineup });
+      if (!draft) return json(200, { mode, draft: null, note: "Couldn't assemble a fresh lineup for this format yet." });
+      // Carry the worked title forward as a starting point.
+      if (fmt?.exampleTitle && !draft.title) draft.title = fmt.exampleTitle;
       return json(200, { mode, draft });
     }
 

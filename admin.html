@@ -442,6 +442,14 @@
       </div>
       <div id="cvQueue"><p style="color:#9ca3af;font-size:13px;">Loading…</p></div>
     </div>
+
+    <div style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:600;font-size:13px;color:#374151;">Learned formats</span>
+        <button class="refresh-btn" style="font-size:12px;padding:4px 10px;" onclick="loadCollabFormats()">↻</button>
+      </div>
+      <div id="cvFormats"><p style="color:#9ca3af;font-size:13px;">—</p></div>
+    </div>
   </div>
 
   <div class="search-bar">
@@ -522,6 +530,7 @@
     document.getElementById("app").style.display = "flex";
     loadMembers();
     loadCollabQueue();
+    loadCollabFormats();
   }
 
   async function loadMembers() {
@@ -1161,6 +1170,7 @@
       ? `<div style="display:flex;gap:8px;align-items:center;">
           <span style="font-size:11px;color:#059669;">✓ approved</span>
           ${roomBtn}
+          <button class="refresh-btn" style="font-size:12px;" onclick="cvRecur('${c.id}', this)" title="Clone with the same parties to run again">Repeat</button>
         </div>`
       : `<div style="display:flex;gap:6px;">
           <button class="refresh-btn" style="font-size:12px;" onclick="cvApprove('${c.id}', this)">Approve</button>
@@ -1265,6 +1275,53 @@
       if (data.ok) loadCollabQueue();
       else { btn.disabled = false; btn.textContent = "Open room"; alert(data.error || "could not open room"); }
     } catch (e) { btn.disabled = false; btn.textContent = "Open room"; }
+  }
+
+  // Repeat an approved collab with the same parties (a fresh flagged clone).
+  async function cvRecur(id, btn) {
+    btn.disabled = true; btn.textContent = "…";
+    try {
+      const data = await cvCollab("POST", { action: "recur", id });
+      if (data.ok) loadCollabQueue();
+      else { btn.disabled = false; btn.textContent = "Repeat"; alert(data.error || "could not repeat"); }
+    } catch (e) { btn.disabled = false; btn.textContent = "Repeat"; }
+  }
+
+  // ── Learned formats ──
+  async function loadCollabFormats() {
+    const box = document.getElementById("cvFormats");
+    try {
+      const data = await cvCompute({ mode: "formats" });
+      const fmts = data.formats || [];
+      if (!fmts.length) {
+        box.innerHTML = `<p style="color:#9ca3af;font-size:13px;">No formats yet — a format is learned when a collab's room votes to proceed.</p>`;
+        return;
+      }
+      box.innerHTML = fmts.map(formatRow).join("");
+    } catch (e) {
+      box.innerHTML = `<p style="color:#dc2626;font-size:13px;">Failed to load formats.</p>`;
+    }
+  }
+
+  function formatRow(f) {
+    const lineup = (f.typeLineup || []).join(" + ");
+    const wins = f.wins || 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:500;">${escapeHtml(f.exampleTitle || f.type || "collab")} <span style="font-size:11px;color:#9ca3af;">· ${escapeHtml(lineup)}</span></div>
+        <div style="font-size:11px;color:#9ca3af;">${wins} win${wins === 1 ? "" : "s"}</div>
+      </div>
+      <button class="refresh-btn" style="font-size:12px;flex-shrink:0;" onclick="cvCloneFormat('${escapeId(f.signature)}', this)">Clone w/ new parties</button>
+    </div>`;
+  }
+
+  async function cvCloneFormat(signature, btn) {
+    const orig = btn.textContent; btn.disabled = true; btn.textContent = "Building…";
+    try {
+      const data = await cvCompute({ mode: "from-format", signature });
+      if (data.draft) cvAddDrafts([data.draft]); else cvNote(data.note || "No fresh lineup found.");
+    } catch (e) { cvNote("Clone failed."); }
+    finally { btn.disabled = false; btn.textContent = orig; }
   }
 
   // ── Boot ──

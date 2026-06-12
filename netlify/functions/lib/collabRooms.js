@@ -1,5 +1,7 @@
 import { getDb } from "./db.js";
 import { FieldValue } from "firebase-admin/firestore";
+import { loadCollab } from "./collabs.js";
+import { recordFormatWin } from "./matchFormats.js";
 
 // collabRooms/{roomId} — a multi-party chat room where interested collab
 // parties finalize a collaboration. Rendered on the marketplace vendor side;
@@ -160,5 +162,16 @@ export async function recordProceedVote(roomId, memberId, vote) {
     update.closedAt = FieldValue.serverTimestamp();
   }
   await ref.update(update);
+
+  // A proceed majority is our strongest signal the collab's shape works —
+  // distill it into a reusable format we can recur with new parties.
+  if (outcome === "proceeding" && room.collabId) {
+    try {
+      const collab = await loadCollab(room.collabId);
+      if (collab) await recordFormatWin(collab);
+    } catch (err) {
+      console.error("recordFormatWin error:", err.message || err);
+    }
+  }
   return { roomId, vote, outcome };
 }

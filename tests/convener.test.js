@@ -4,6 +4,7 @@ import { pairKey, collabPairKeys, pendingOptionsFor } from "../netlify/functions
 import { rankPairScore, reconcileMessages } from "../netlify/functions/lib/convener.js";
 import { interestedParties, majorityInterested, voteOutcome, isParticipant } from "../netlify/functions/lib/collabRooms.js";
 import { assessPool, DECLINE_REMOVE_AT } from "../netlify/functions/lib/collabActivity.js";
+import { formatSignature, parseLineup, topAffinityLineup } from "../netlify/functions/lib/matchFormats.js";
 
 // ---------------------------------------------------------------------------
 // pairKey — order-independent so (A,B) and (B,A) dedupe to one collab
@@ -255,4 +256,47 @@ test("assessPool: idle 70d → removed", () => {
 test("assessPool: a recent collab response counts as activity", () => {
   const r = assessPool({ profile: {}, lastActiveAt: daysAgo(40), collabActivity: { lastRespondedAt: daysAgo(2) } }, NOW);
   assert.equal(r.poolStatus, "active");
+});
+
+// ---------------------------------------------------------------------------
+// matchFormats — signature, lineup parsing, affinity
+// ---------------------------------------------------------------------------
+test("formatSignature: type + sorted member types, ignoring out-parties", () => {
+  const collab = {
+    type: "event",
+    parties: [
+      { memberType: "vendor", partyStatus: "in" },
+      { memberType: "artist", partyStatus: "in" },
+      { memberType: "shopper", partyStatus: "out" },
+    ],
+  };
+  assert.equal(formatSignature(collab), "event|artist+vendor");
+});
+test("formatSignature: same lineup in any order → same signature", () => {
+  const a = { type: "group", parties: [{ memberType: "artist" }, { memberType: "vendor" }] };
+  const b = { type: "group", parties: [{ memberType: "vendor" }, { memberType: "artist" }] };
+  assert.equal(formatSignature(a), formatSignature(b));
+});
+
+test("parseLineup: extracts the member types", () => {
+  assert.deepEqual(parseLineup("event|artist+organizer+vendor"), ["artist", "organizer", "vendor"]);
+});
+test("parseLineup: signature with no lineup → empty", () => {
+  assert.deepEqual(parseLineup("event|"), []);
+  assert.deepEqual(parseLineup(""), []);
+});
+
+test("topAffinityLineup: returns the lineup of the most-frequent format", () => {
+  const affinity = { "event|artist+vendor": 3, "group|organizer+vendor": 1 };
+  assert.deepEqual(topAffinityLineup(affinity), ["artist", "vendor"]);
+});
+test("topAffinityLineup: empty/absent → null", () => {
+  assert.equal(topAffinityLineup({}), null);
+  assert.equal(topAffinityLineup(undefined), null);
+});
+
+// formatSignature round-trips through parseLineup
+test("format round-trip: signature → lineup matches the included types", () => {
+  const collab = { type: "event", parties: [{ memberType: "vendor", partyStatus: "in" }, { memberType: "artist", partyStatus: "in" }] };
+  assert.deepEqual(parseLineup(formatSignature(collab)), ["artist", "vendor"]);
 });

@@ -69,14 +69,16 @@ export async function recordProposed(memberIds = []) {
   await batch.commit();
 }
 
-export async function recordResponse(memberId, decision) {
+export async function recordResponse(memberId, decision, { signature = null } = {}) {
   const db = getDb();
   const ref = db.collection("members").doc(memberId);
   if (decision === "interested") {
-    // Engaging resets the decline streak and reactivates them.
-    await ref.set({
-      collabActivity: { lastRespondedAt: iso(), lastInterestedAt: iso(), declineStreak: 0, poolStatus: "active" },
-    }, { merge: true });
+    // Engaging resets the decline streak and reactivates them. We also bump
+    // this member's affinity for the collab's format so future proposals lean
+    // toward shapes they've said yes to (with all-new counterparts).
+    const activity = { lastRespondedAt: iso(), lastInterestedAt: iso(), declineStreak: 0, poolStatus: "active" };
+    if (signature) activity.formatAffinity = { [signature]: FieldValue.increment(1) };
+    await ref.set({ collabActivity: activity }, { merge: true });
   } else if (decision === "declined") {
     await ref.set({
       collabActivity: { lastRespondedAt: iso(), declineStreak: FieldValue.increment(1) },

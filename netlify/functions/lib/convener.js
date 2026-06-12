@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { getDb } from "./db.js";
 import { queryComplementary, buildNeedsText, buildOffersText } from "./vectorSearch.js";
 import { pairKey } from "./collabs.js";
+import { topAffinityLineup } from "./matchFormats.js";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -214,26 +215,42 @@ export async function proposePairings({ limit = 12, compose = 6, excludePairKeys
 }
 
 // ── Type 2: group collabs ──────────────────────────────────────────────────
-// Build a lineup of distinct-type members. Anchor-driven when seedMemberId is
-// given; otherwise seeds from the strongest available member.
-export async function buildGroup({ seedMemberId = null, size = 3, pool = null } = {}) {
+// Build a lineup of complementary members. Anchor-driven when seedMemberId is
+// given; otherwise seeds from the strongest available member. An explicit
+// `lineup` (member types) clones a learned format; absent that, the anchor's
+// own format affinity shapes the lineup, falling back to a diverse mix.
+export async function buildGroup({ seedMemberId = null, size = 3, lineup = null, pool = null } = {}) {
   pool = pool || await loadMatchPool();
   const idx = poolIndex(pool);
 
   let anchor = seedMemberId ? idx.get(seedMemberId) : null;
   if (!anchor) {
-    // Autonomous: anchor on the member with the richest needs+offers signal.
-    anchor = pool
+    // Autonomous: richest needs+offers signal. When a target lineup is given,
+    // anchor on someone whose type the lineup actually calls for.
+    const eligible = lineup?.length ? pool.filter(m => lineup.includes(m.profile.memberType)) : pool;
+    anchor = (eligible.length ? eligible : pool)
       .map(m => ({ m, signal: (buildNeedsText(m.profile) + buildOffersText(m.profile)).length }))
       .sort((a, b) => b.signal - a.signal)[0]?.m;
   }
   if (!anchor) return null;
 
+  // No explicit lineup → lean on what this anchor has said yes to before.
+  let lineupTypes = lineup;
+  if (!lineupTypes) lineupTypes = topAffinityLineup(anchor.collabActivity?.formatAffinity);
+
   const chosen = [anchor];
   const usedTypes = new Set([anchor.profile.memberType].filter(Boolean));
   const usedIds = new Set([anchor.id]);
 
-  // Extend the lineup with complementary members of new types.
+  // Types the lineup still needs after seating the anchor (null = diverse mode).
+  let needTypes = null;
+  if (lineupTypes?.length) {
+    needTypes = [...lineupTypes];
+    const ai = needTypes.indexOf(anchor.profile.memberType);
+    if (ai >= 0) needTypes.splice(ai, 1);
+    size = lineupTypes.length;
+  }
+
   const needsText = buildNeedsText(anchor.profile);
   const offersText = buildOffersText(anchor.profile);
   const ranked = await queryComplementary({ needsText, offersText, excludeIds: [anchor.id], limit: 25 });
@@ -242,10 +259,16 @@ export async function buildGroup({ seedMemberId = null, size = 3, pool = null } 
     const cand = idx.get(r.id);
     if (!cand || usedIds.has(cand.id)) continue;
     const t = cand.profile.memberType;
-    if (t && usedTypes.has(t)) continue; // prefer a diverse lineup
+    if (needTypes) {
+      const ti = needTypes.indexOf(t);
+      if (ti < 0) continue;        // not a role this lineup still needs
+      needTypes.splice(ti, 1);
+    } else {
+      if (t && usedTypes.has(t)) continue; // prefer a diverse lineup
+      if (t) usedTypes.add(t);
+    }
     chosen.push(cand);
     usedIds.add(cand.id);
-    if (t) usedTypes.add(t);
   }
 
   if (chosen.length < 2) return null;

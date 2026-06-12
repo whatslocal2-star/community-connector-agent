@@ -72,6 +72,28 @@ export const handler = async (event) => {
         return json(200, { ok: true, ...result });
       }
 
+      if (action === "recur") {
+        if (!body.id) return json(400, { error: "id required" });
+        const src = await loadCollab(body.id);
+        if (!src) return json(404, { error: "collab not found" });
+        // Repeat with the same parties: a fresh flagged clone to re-approve.
+        const parties = (src.parties || [])
+          .filter(p => p.partyStatus !== "out")
+          .map(p => ({ ...p, partyStatus: "proposed", response: null, invitedAt: null }));
+        const id = await createCollab({
+          type: src.type,
+          source: "manual",
+          title: src.title,
+          description: src.description,
+          adminSummary: src.adminSummary,
+          parties,
+          rolesNeeded: src.rolesNeeded || [],
+          seedMemberId: src.seedMemberId ?? null,
+          status: "flagged",
+        });
+        return json(200, { ok: true, id });
+      }
+
       if (action === "open-room") {
         if (!body.id) return json(400, { error: "id required" });
         const collab = await loadCollab(body.id);

@@ -2,6 +2,7 @@ import { getDb } from "./db.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { createMatchLog } from "./matchLog.js";
 import { recordProposed, recordResponse } from "./collabActivity.js";
+import { formatSignature } from "./matchFormats.js";
 
 // collabs/{id} — a Convener proposal the admin reviews and approves.
 // {
@@ -225,7 +226,7 @@ export async function recordCollabResponse(collabId, memberId, { decision, note 
     { pendingCollabs: FieldValue.arrayRemove(collabId) },
     { merge: true },
   );
-  await recordResponse(memberId, decision);
+  await recordResponse(memberId, decision, { signature: formatSignature(collab) });
   return { collabId, memberId, decision };
 }
 
