@@ -3,6 +3,7 @@ import { buildSystemPrompt, isOnboarded } from "./lib/systemPrompt.js";
 import { parseCompletion } from "./lib/profileTool.js";
 import { saveMember, loadMember } from "./lib/db.js";
 import { loadCollabsByIds, pendingOptionsFor, recordCollabResponse } from "./lib/collabs.js";
+import { assessPool, recordNudged } from "./lib/collabActivity.js";
 import { upsertMemberVector } from "./lib/vectorSearch.js";
 import { loadAwaitingOutcome, recordOutcome } from "./lib/matchLog.js";
 import { extractOutcome } from "./lib/extractOutcome.js";
@@ -111,10 +112,17 @@ export const handler = async (event) => {
       } catch (err) { console.error("load pending collabs error:", err); }
     }
 
+    // Gently recalibrate members who keep passing on collabs (active, still in
+    // the pool). Stamp nudgedAt so we don't ask more than weekly.
+    const recalibrate = connectorMode ? assessPool(existing).shouldNudge : false;
+    if (recalibrate) {
+      try { await recordNudged(sessionId); } catch (err) { console.error("recordNudged error:", err); }
+    }
+
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 512,
-      messages: [{ role: "system", content: buildSystemPrompt(existing?.profile, { sms: false, pendingCollabs: pendingOptions }) }, ...cappedMessages],
+      messages: [{ role: "system", content: buildSystemPrompt(existing?.profile, { sms: false, pendingCollabs: pendingOptions, recalibrate }) }, ...cappedMessages],
       response_format: { type: "json_object" },
     });
 

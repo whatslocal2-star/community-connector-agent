@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { pairKey, collabPairKeys, pendingOptionsFor } from "../netlify/functions/lib/collabs.js";
 import { rankPairScore, reconcileMessages } from "../netlify/functions/lib/convener.js";
 import { interestedParties, majorityInterested, voteOutcome, isParticipant } from "../netlify/functions/lib/collabRooms.js";
+import { assessPool, DECLINE_REMOVE_AT } from "../netlify/functions/lib/collabActivity.js";
 
 // ---------------------------------------------------------------------------
 // pairKey — order-independent so (A,B) and (B,A) dedupe to one collab
@@ -198,4 +199,60 @@ test("voteOutcome: no majority stays pending", () => {
 test("voteOutcome: 2-person room needs both to proceed", () => {
   assert.equal(voteOutcome({ participantIds: ["a", "b"], proceedVotes: { a: "proceed" } }), null);
   assert.equal(voteOutcome({ participantIds: ["a", "b"], proceedVotes: { a: "proceed", b: "proceed" } }), "proceeding");
+});
+
+// ---------------------------------------------------------------------------
+// assessPool — "active and collaborating to stay in the network"
+// ---------------------------------------------------------------------------
+const NOW = Date.parse("2026-06-11T00:00:00Z");
+const DAY = 24 * 60 * 60 * 1000;
+const daysAgo = (n) => new Date(NOW - n * DAY).toISOString();
+
+test("assessPool: recently active, no declines → active", () => {
+  const r = assessPool({ profile: {}, lastActiveAt: daysAgo(1), collabActivity: { declineStreak: 0 } }, NOW);
+  assert.equal(r.poolStatus, "active");
+  assert.equal(r.shouldNudge, false);
+});
+
+test("assessPool: harvested seed is always kept, even if idle", () => {
+  const r = assessPool({ profile: {}, status: "unclaimed", source: "google_places_harvest", lastActiveAt: daysAgo(365) }, NOW);
+  assert.equal(r.poolStatus, "active");
+});
+
+test("assessPool: missing activity signal never removes", () => {
+  assert.equal(assessPool({ profile: {} }, NOW).poolStatus, "active");
+});
+
+test("assessPool: two declines while active → nudge, still active", () => {
+  const r = assessPool({ profile: {}, lastActiveAt: daysAgo(1), collabActivity: { declineStreak: 2 } }, NOW);
+  assert.equal(r.poolStatus, "active");
+  assert.equal(r.shouldNudge, true);
+});
+
+test("assessPool: don't nudge again within a week", () => {
+  const r = assessPool({ profile: {}, lastActiveAt: daysAgo(1), collabActivity: { declineStreak: 3, nudgedAt: daysAgo(2) } }, NOW);
+  assert.equal(r.shouldNudge, false);
+});
+
+test("assessPool: heavy decliner who is STILL active is kept (nudged, not removed)", () => {
+  const r = assessPool({ profile: {}, lastActiveAt: daysAgo(2), collabActivity: { declineStreak: DECLINE_REMOVE_AT } }, NOW);
+  assert.equal(r.poolStatus, "active");
+});
+
+test("assessPool: heavy decliner who has also gone quiet → removed", () => {
+  const r = assessPool({ profile: {}, lastActiveAt: daysAgo(20), collabActivity: { declineStreak: DECLINE_REMOVE_AT } }, NOW);
+  assert.equal(r.poolStatus, "removed");
+});
+
+test("assessPool: idle 35d → dormant", () => {
+  assert.equal(assessPool({ profile: {}, lastActiveAt: daysAgo(35), collabActivity: {} }, NOW).poolStatus, "dormant");
+});
+
+test("assessPool: idle 70d → removed", () => {
+  assert.equal(assessPool({ profile: {}, lastActiveAt: daysAgo(70), collabActivity: {} }, NOW).poolStatus, "removed");
+});
+
+test("assessPool: a recent collab response counts as activity", () => {
+  const r = assessPool({ profile: {}, lastActiveAt: daysAgo(40), collabActivity: { lastRespondedAt: daysAgo(2) } }, NOW);
+  assert.equal(r.poolStatus, "active");
 });

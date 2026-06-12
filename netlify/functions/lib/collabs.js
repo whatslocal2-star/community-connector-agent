@@ -1,6 +1,7 @@
 import { getDb } from "./db.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { createMatchLog } from "./matchLog.js";
+import { recordProposed, recordResponse } from "./collabActivity.js";
 
 // collabs/{id} — a Convener proposal the admin reviews and approves.
 // {
@@ -172,6 +173,7 @@ export async function approveCollab(id, { parties, title, description, adminSumm
   });
 
   await attachPendingToMembers(id, inMemberIds);
+  await recordProposed(inMemberIds);
   return { id, status: "approved", matchLogIds, invited: inMemberIds.length };
 }
 
@@ -223,6 +225,7 @@ export async function recordCollabResponse(collabId, memberId, { decision, note 
     { pendingCollabs: FieldValue.arrayRemove(collabId) },
     { merge: true },
   );
+  await recordResponse(memberId, decision);
   return { collabId, memberId, decision };
 }
 

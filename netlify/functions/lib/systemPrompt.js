@@ -228,11 +228,20 @@ ADDITIONAL OUTPUT FIELD, only when the member responds to an option this turn:
 - "collabResponses": an array of { "collabId": "<the exact collabId shown above>", "decision": "interested" | "declined" | "maybe", "note": "<their words / any useful context, optional>" }. Include only options they actually responded to. Omit the field entirely otherwise.`;
 }
 
+// A member who keeps passing on collabs is gently asked what would make them
+// more relevant — to recalibrate their needs/offers rather than churn them out.
+const RECALIBRATE_BLOCK = `
+
+RECALIBRATION — this member has passed on the last few collaboration options. Sometime this turn, when it feels natural, gently check in: ask what kinds of collaborations or connections WOULD actually excite them, or what's changed about what they're looking for. Frame it as wanting to send better matches, not as pressure. Capture anything they share into profileUpdate (especially "needs", "offers", "goals", "dislikes") so future matches land better. Keep it light and in-character — one warm question, not an interrogation.`;
+
 // Pick the right system prompt for this turn based on the member's current
 // profile (onboarding vs connector) and channel (web vs sms). Pending collab
-// options are appended for onboarded members so the connector can relay them.
-export function buildSystemPrompt(profile, { sms = false, pendingCollabs = [] } = {}) {
+// options + a recalibration nudge are appended for onboarded members.
+export function buildSystemPrompt(profile, { sms = false, pendingCollabs = [], recalibrate = false } = {}) {
   let base = isOnboarded(profile) ? CONNECTOR_PROMPT : ONBOARDING_PROMPT;
-  if (isOnboarded(profile) && pendingCollabs?.length) base += pendingBlock(pendingCollabs);
+  if (isOnboarded(profile)) {
+    if (pendingCollabs?.length) base += pendingBlock(pendingCollabs);
+    if (recalibrate) base += RECALIBRATE_BLOCK;
+  }
   return sms ? toSms(base) : base;
 }

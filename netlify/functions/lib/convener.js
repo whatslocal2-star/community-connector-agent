@@ -51,7 +51,9 @@ export async function loadMatchPool(limit = MATCH_POOL_LIMIT) {
       const { history, ...rest } = d.data();
       return { id: d.id, ...rest };
     })
-    .filter(m => m.profile);
+    // Members pruned from the pool (inactive / persistent decliners) are not
+    // surfaced as candidates or used as anchors.
+    .filter(m => m.profile && m.collabActivity?.poolStatus !== "removed");
 }
 
 function poolIndex(pool) {
