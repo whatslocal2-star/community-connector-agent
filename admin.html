@@ -1026,7 +1026,7 @@
       const data = await cvCompute({ mode: "pairings", limit: 8, compose: 3 });
       if (data.drafts?.length) cvAddDrafts(data.drafts, "pairwise");
       else cvNote("No new pairings surfaced — the network may still be filling in.", "pairwise");
-    } catch (e) { cvNote("Pairing scan failed.", "pairwise"); }
+    } catch (e) { console.error("cvFindPairings", e); cvNote("Pairing scan failed: " + (e?.message || e), "pairwise"); }
     finally { btn.disabled = false; btn.textContent = orig; }
   }
 

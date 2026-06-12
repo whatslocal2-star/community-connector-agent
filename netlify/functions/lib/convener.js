@@ -52,9 +52,14 @@ export async function loadMatchPool(limit = MATCH_POOL_LIMIT) {
       const { history, ...rest } = d.data();
       return { id: d.id, ...rest };
     })
-    // Members pruned from the pool (inactive / persistent decliners) are not
-    // surfaced as candidates or used as anchors.
-    .filter(m => m.profile && m.collabActivity?.poolStatus !== "removed");
+    .filter(m =>
+      m.profile &&
+      // Shoppers are consumers, not collaborators — they're matched TO vendors
+      // via recommendations, never surfaced as a collab party.
+      m.profile.memberType !== "shopper" &&
+      // Members pruned from the pool (inactive / persistent decliners) are not
+      // surfaced as candidates or used as anchors.
+      m.collabActivity?.poolStatus !== "removed");
 }
 
 function poolIndex(pool) {
@@ -351,7 +356,7 @@ Return strict JSON:
 {
   "title": "short event name",
   "description": "2-3 sentences describing the event and why it fits this community",
-  "rolesNeeded": [ { "role": "human-readable role", "type": "vendor|artist|organizer|influencer|shopper" } ]
+  "rolesNeeded": [ { "role": "human-readable role", "type": "vendor|artist|organizer|influencer" } ]
 }
 
 Rules:
