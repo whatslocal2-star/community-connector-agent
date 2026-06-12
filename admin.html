@@ -1154,8 +1154,14 @@
         <div id="cv_repl_${c.id}_${pi}"></div>
       </div>`;
     }).join("");
+    const roomBtn = c.roomId
+      ? `<span style="font-size:11px;color:#3730a3;">💬 room open</span>`
+      : `<button class="refresh-btn" style="font-size:12px;" onclick="cvOpenRoom('${c.id}', this)">Open room${cvMajorityInterested(c) ? " ✓" : ""}</button>`;
     const actions = approved
-      ? `<span style="font-size:11px;color:#059669;">✓ approved — not sent</span>`
+      ? `<div style="display:flex;gap:8px;align-items:center;">
+          <span style="font-size:11px;color:#059669;">✓ approved</span>
+          ${roomBtn}
+        </div>`
       : `<div style="display:flex;gap:6px;">
           <button class="refresh-btn" style="font-size:12px;" onclick="cvApprove('${c.id}', this)">Approve</button>
           <button class="refresh-btn" style="font-size:12px;" onclick="cvDismiss('${c.id}', this)">Dismiss</button>
@@ -1243,6 +1249,22 @@
     btn.disabled = true; btn.textContent = "…";
     try { await cvCollab("POST", { action: "dismiss", id }); loadCollabQueue(); }
     catch (e) { btn.disabled = false; btn.textContent = "Dismiss"; }
+  }
+
+  // Majority of included parties said "interested" — surfaces a ✓ on Open room.
+  function cvMajorityInterested(c) {
+    const included = (c.parties || []).filter(p => p.partyStatus !== "out");
+    const interested = included.filter(p => p.response?.decision === "interested").length;
+    return interested >= 2 && interested >= Math.ceil(included.length / 2);
+  }
+
+  async function cvOpenRoom(id, btn) {
+    btn.disabled = true; btn.textContent = "Opening…";
+    try {
+      const data = await cvCollab("POST", { action: "open-room", id });
+      if (data.ok) loadCollabQueue();
+      else { btn.disabled = false; btn.textContent = "Open room"; alert(data.error || "could not open room"); }
+    } catch (e) { btn.disabled = false; btn.textContent = "Open room"; }
   }
 
   // ── Boot ──

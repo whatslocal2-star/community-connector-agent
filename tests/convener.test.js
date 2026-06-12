@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pairKey, collabPairKeys, pendingOptionsFor } from "../netlify/functions/lib/collabs.js";
 import { rankPairScore, reconcileMessages } from "../netlify/functions/lib/convener.js";
+import { interestedParties, majorityInterested, voteOutcome, isParticipant } from "../netlify/functions/lib/collabRooms.js";
 
 // ---------------------------------------------------------------------------
 // pairKey — order-independent so (A,B) and (B,A) dedupe to one collab
@@ -141,4 +142,60 @@ test("pendingOptionsFor: excludes out-parties from the others list", () => {
   c.parties.push({ memberId: "d", memberName: "Dee", memberType: "organizer", partyStatus: "out", response: null });
   const opts = pendingOptionsFor([c], "a");
   assert.deepEqual(opts[0].others.map(o => o.name), ["Bo"]);
+});
+
+// ---------------------------------------------------------------------------
+// collabRooms pure helpers — who's interested, when to open, vote resolution
+// ---------------------------------------------------------------------------
+const collabWith = (responses, statuses = []) => ({
+  id: "c1", title: "Night Market", type: "group",
+  parties: responses.map((d, i) => ({
+    memberId: "m" + i, memberName: "M" + i, memberType: "vendor",
+    partyStatus: statuses[i] || "in",
+    response: d ? { decision: d } : null,
+  })),
+});
+
+test("interestedParties: only counts interested, included parties", () => {
+  const c = collabWith(["interested", "declined", "interested"]);
+  assert.deepEqual(interestedParties(c).map(p => p.memberId), ["m0", "m2"]);
+});
+
+test("majorityInterested: 2 of 3 interested → true", () => {
+  assert.equal(majorityInterested(collabWith(["interested", "interested", null])), true);
+});
+test("majorityInterested: 1 of 3 interested → false", () => {
+  assert.equal(majorityInterested(collabWith(["interested", null, null])), false);
+});
+test("majorityInterested: needs at least 2 even in a pair", () => {
+  assert.equal(majorityInterested(collabWith(["interested", null])), false);
+  assert.equal(majorityInterested(collabWith(["interested", "interested"])), true);
+});
+test("majorityInterested: out-parties don't count toward the denominator", () => {
+  // 2 interested, 1 out → included = 2, majority met
+  assert.equal(majorityInterested(collabWith(["interested", "interested", "declined"], ["in", "in", "out"])), true);
+});
+
+test("isParticipant: matches on participantIds", () => {
+  const room = { participantIds: ["a", "b"] };
+  assert.equal(isParticipant(room, "b"), true);
+  assert.equal(isParticipant(room, "z"), false);
+  assert.equal(isParticipant({}, "a"), false);
+});
+
+test("voteOutcome: majority proceed closes proceeding", () => {
+  const room = { participantIds: ["a", "b", "c"], proceedVotes: { a: "proceed", b: "proceed" } };
+  assert.equal(voteOutcome(room), "proceeding");
+});
+test("voteOutcome: majority skip closes skipped", () => {
+  const room = { participantIds: ["a", "b", "c"], proceedVotes: { a: "skip", b: "skip" } };
+  assert.equal(voteOutcome(room), "skipped");
+});
+test("voteOutcome: no majority stays pending", () => {
+  const room = { participantIds: ["a", "b", "c"], proceedVotes: { a: "proceed", b: "skip" } };
+  assert.equal(voteOutcome(room), null);
+});
+test("voteOutcome: 2-person room needs both to proceed", () => {
+  assert.equal(voteOutcome({ participantIds: ["a", "b"], proceedVotes: { a: "proceed" } }), null);
+  assert.equal(voteOutcome({ participantIds: ["a", "b"], proceedVotes: { a: "proceed", b: "proceed" } }), "proceeding");
 });

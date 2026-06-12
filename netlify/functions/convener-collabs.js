@@ -1,4 +1,5 @@
 import { createCollab, listCollabs, loadCollab, approveCollab, dismissCollab } from "./lib/collabs.js";
+import { openRoomForCollab } from "./lib/collabRooms.js";
 import { isAdminAuthorized } from "./lib/adminAuth.js";
 
 const corsHeaders = {
@@ -68,6 +69,15 @@ export const handler = async (event) => {
       if (action === "dismiss") {
         if (!body.id) return json(400, { error: "id required" });
         const result = await dismissCollab(body.id);
+        return json(200, { ok: true, ...result });
+      }
+
+      if (action === "open-room") {
+        if (!body.id) return json(400, { error: "id required" });
+        const collab = await loadCollab(body.id);
+        if (!collab) return json(404, { error: "collab not found" });
+        const result = await openRoomForCollab(collab);
+        if (result.error) return json(409, { error: result.error });
         return json(200, { ok: true, ...result });
       }
 
