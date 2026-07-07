@@ -45,6 +45,24 @@ export async function loadAllMembers(limit = 500) {
   });
 }
 
+// Find a member whose profile was pre-tagged with a trusted onboarding number
+// (an admin set it in person) OR who has already been linked to that number.
+// Powers the possession gate: only a call/text FROM this number may onboard the
+// pre-created profile. `phone` must be E.164-normalized. Returns null if none.
+export async function findMemberByTrustedPhone(phone) {
+  if (!phone) return null;
+  const db = getDb();
+  for (const field of ["profile.trustedPhone", "profile.ownerPhone"]) {
+    const snap = await db.collection("members").where(field, "==", phone).limit(1).get();
+    if (!snap.empty) {
+      const doc = snap.docs[0];
+      const { history, ...rest } = doc.data();
+      return { id: doc.id, ...rest };
+    }
+  }
+  return null;
+}
+
 export async function saveSubscriptions(memberId, channels) {
   const db = getDb();
   const batch = db.batch();

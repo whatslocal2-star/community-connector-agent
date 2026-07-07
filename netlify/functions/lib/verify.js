@@ -175,9 +175,21 @@ export async function verifyBusinessOwnership(method, claimedValue, profile) {
   }
 
   if (method === "phone") {
-    const onFile = normalizePhone(profile.businessPhone);
     const claimed = normalizePhone(claimedValue);
 
+    // If an admin set a trusted number on this profile in person, that's the
+    // ground truth — the public/Google number is intentionally NOT accepted here
+    // (it's public, so typing it isn't proof). Only the trusted number verifies.
+    const trusted = normalizePhone(profile.trustedPhone);
+    if (trusted) {
+      return {
+        verified: trusted === claimed,
+        method: "phone",
+        evidence: { source: "trusted", matched: trusted === claimed },
+      };
+    }
+
+    const onFile = normalizePhone(profile.businessPhone);
     if (onFile && onFile === claimed) {
       return { verified: true, method: "phone", evidence: { source: "profile", onFile, claimed } };
     }
@@ -250,7 +262,7 @@ export async function verifyBusinessOwnership(method, claimedValue, profile) {
 
 export function availableVerificationMethods(profile) {
   const methods = [];
-  if (profile.businessPhone || profile.googleMapsUrl) methods.push("phone");
+  if (profile.trustedPhone || profile.businessPhone || profile.googleMapsUrl) methods.push("phone");
   if (profile.googleMapsUrl || profile.placeId || profile.place_id) methods.push("google_maps");
   if (profile.websiteUrl) methods.push("website_email");
   if (profile.instagramHandle) methods.push("instagram");
