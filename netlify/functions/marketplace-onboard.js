@@ -34,6 +34,12 @@ export const handler = async (event) => {
 
   const source = body.source || "marketplace_onboard";
 
+  // Optional: enrich an EXISTING member in place (the marketplace /join voice or
+  // text interview — the member was already created + verified/claimed there).
+  // Without this the function always mints a new id, which would duplicate.
+  const existingId =
+    typeof body.memberId === "string" && body.memberId.trim() ? body.memberId.trim() : null;
+
   try {
     // Same model + onboarding system prompt + JSON mode as chat.js, but over the
     // entire conversation at once (no prior profile = onboarding mode).
@@ -44,7 +50,9 @@ export const handler = async (event) => {
       response_format: { type: "json_object" },
     });
     const { profileUpdate } = parseCompletion(completion);
-    if (!profileUpdate || typeof profileUpdate !== "object" || !profileUpdate.name) {
+    // For a NEW member we need at least a name; for an existing member the name
+    // is already set/verified, so any captured detail is enough.
+    if (!profileUpdate || typeof profileUpdate !== "object" || (!existingId && !profileUpdate.name)) {
       return { statusCode: 422, body: JSON.stringify({ error: "Could not capture a business name from the chat" }) };
     }
 
@@ -58,6 +66,42 @@ export const handler = async (event) => {
       normalized.pricePerProduct = normalizePricePerProduct(profileUpdate.pricePerProduct);
     }
 
+    // ── Enrich an EXISTING member (marketplace /join interview) ──────────────
+    if (existingId) {
+      // Never let the interview overwrite the identity/verification anchors set
+      // during /join (Google listing + ownership claim). It only enriches the
+      // descriptive fields; name, location, contact + claim status are the
+      // authoritative anchors and win.
+      const PROTECTED = [
+        "name", "memberType", "status", "claimedBy",
+        "phone", "businessPhone", "trustedPhone", "ownerPhone",
+        "googleMapsUrl", "latitude", "longitude", "city",
+      ];
+      for (const k of PROTECTED) delete normalized[k];
+
+      // No status in meta → we never downgrade a claimed member to unclaimed.
+      await saveMember(existingId, { profileUpdate: { ...normalized }, meta: { source } });
+      await enqueuePostSave(existingId, { ...normalized }, source);
+
+      const member = await loadMember(existingId);
+      if (member?.profile && Object.keys(member.profile).length) {
+        try {
+          await upsertMemberVector(existingId, member.profile);
+        } catch (e) {
+          console.error("onboard(update) embed error:", e?.message || e);
+        }
+      }
+
+      const { profile = {}, phone: _tp, ...rest } = member || {};
+      const { phone, email, businessPhone, ...safeProfile } = profile;
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: existingId, member: { ...rest, profile: safeProfile } }),
+      };
+    }
+
+    // ── Create a NEW member (booth QR onboarding) ────────────────────────────
     const status = "unclaimed";
     const id = crypto.randomUUID();
     await saveMember(id, { profileUpdate: { ...normalized, status }, meta: { source, status } });
