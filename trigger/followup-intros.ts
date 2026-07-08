@@ -10,6 +10,9 @@ export const followupIntros = schedules.task({
   id: "followup-intros",
   cron: "0 * * * *",
   run: async () => {
+    // DISABLED (2026-07-08) — paused for now. Re-enable by setting
+    // FOLLOWUP_INTROS_ENABLED=1 in the Trigger.dev env.
+    if (process.env.FOLLOWUP_INTROS_ENABLED !== "1") return { disabled: true };
     initObservability({ context: "trigger.followup-intros" });
     const { initializeApp, cert, getApps } = await import("firebase-admin/app");
     const { getFirestore, FieldValue } = await import("firebase-admin/firestore");

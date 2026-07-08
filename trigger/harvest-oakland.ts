@@ -31,6 +31,10 @@ export const harvestOakland = schedules.task({
   id: "harvest-oakland",
   cron: "0 9 * * 0",
   run: async () => {
+    // DISABLED (2026-07-08) — not expanding to Oakland, and it does heavy Places
+    // `nearbysearch` across many categories/pages (Places quota + cost). Re-enable
+    // deliberately by setting HARVEST_OAKLAND_ENABLED=1 in the Trigger.dev env.
+    if (process.env.HARVEST_OAKLAND_ENABLED !== "1") return { disabled: true };
     initObservability({ context: "trigger.harvest-oakland" });
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
     if (!apiKey) return { error: "GOOGLE_PLACES_API_KEY missing" };

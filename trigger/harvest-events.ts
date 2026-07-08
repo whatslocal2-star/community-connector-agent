@@ -22,6 +22,10 @@ export const harvestEvents = schedules.task({
   id: "harvest-events",
   cron: "0 8 * * *",
   run: async () => {
+    // DISABLED (2026-07-08) — real organizers post events now; auto-harvest paused
+    // (OpenAI + scrape cost). Re-enable by setting HARVEST_EVENTS_ENABLED=1 in the
+    // Trigger.dev env.
+    if (process.env.HARVEST_EVENTS_ENABLED !== "1") return { disabled: true };
     initObservability({ context: "trigger.harvest-events" });
     const { initializeApp, cert, getApps } = await import("firebase-admin/app");
     const { getFirestore, FieldValue } = await import("firebase-admin/firestore");
