@@ -20,6 +20,7 @@ Return a JSON object with ONLY the fields you can confidently extract. Use these
 - services (array of strings — what they offer)
 - menuHighlights (array of strings — notable items if restaurant/cafe/bar)
 - reviewsSummary (string — 1 sentence summary of review sentiment if available)
+- story (string — a warm, specific 2-3 sentence narrative of the business's history, mission, and what makes it locally loved; grounded in the sources, never invented)
 - instagramHandle (string — without @)
 - facebookUrl (string)
 - websiteUrl (string)
@@ -90,6 +91,48 @@ export async function searchGooglePlaces(query) {
   }
 }
 
+// Live web-search research via Perplexity `sonar`. Unlike scrapeWebsite (which
+// needs a known URL) this discovers info about the business from the open web —
+// the source of the rich "story"/vibe even for thin- or no-website businesses.
+// Returns citation-grounded prose to feed into the JSON extractor (facts still
+// win the merge downstream). Reused from the prolocaliq enrichment approach.
+export async function searchPerplexity(businessName, city) {
+  const apiKey = process.env.PERPLEXITY_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(25000),
+      body: JSON.stringify({
+        model: "sonar",
+        max_tokens: 700,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a local-business researcher. Use live web search to describe a SPECIFIC real business accurately. Prefer verifiable facts; never invent details. If you can't confirm the business, say so plainly.",
+          },
+          {
+            role: "user",
+            content: `Research the business "${businessName}" in ${city}. Cover: what they do, their story/history/mission, their vibe and atmosphere, notable specialties or menu items, and what makes them locally loved. Be concrete.`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content;
+    if (!text) return null;
+    const citations = Array.isArray(data.citations) ? data.citations.slice(0, 5) : [];
+    return citations.length ? `${text}\n\nSources: ${citations.join(", ")}` : text;
+  } catch (err) {
+    console.error("Perplexity error:", err.message);
+    return null;
+  }
+}
+
 export async function extractProfileFromContent(scrapedContent) {
   const openai = getOpenAI();
 
@@ -132,6 +175,11 @@ export async function enrichProfile(profile) {
         if (content) sources.push(`--- Website content from ${places.website} ---\n${content}`);
       }
     }
+
+    // Live web-search research — works even when Places has no key and the
+    // business has no scrapeable website. This is the "story" source.
+    const web = await searchPerplexity(businessName, city);
+    if (web) sources.push(`--- Web research (Perplexity, with citations) ---\n${web}`);
   }
 
   if (!sources.length) return null;
